@@ -1,7 +1,7 @@
 /*
  * Dynamic/rolling memory buffer, which supports stream-like data processing.
  *
- * Copyright (C) 1999-2018 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -130,6 +130,60 @@ uint8_t *WXBuffer_Printf(WXBuffer *buffer, const char *format, ...)
                                     __attribute__((format(__printf__, 2, 3)));
 
 /**
+ * Pack a set of values into the buffer according to the (modified) Perl
+ * binary pack format.  The packing mechanism recognizes the fixed patterns
+ * 'aAbBhHcCsSlLqQnNvVxX', the <> modifiers (not !), the [] and *% length
+ * notation and groups ().  Also recognizes z and Z for network and vax ordered
+ * 64-bit unsigned values (like nN and vV).
+ *
+ * @param buffer The buffer instance to pack into.
+ * @param format The format to define the packing information.
+ * @param ... The argument set for the pack, according to the format.
+ * @return Reference to the internal buffer if successfully (re)allocated or
+ *         NULL on a memory allocation failure.
+ */
+uint8_t *WXBuffer_Pack(WXBuffer *buffer, const char *format, ...);
+
+/**
+ * Identical to the above, but pack based on an explicit varargs instance.
+ *
+ * @param buffer The buffer instance to pack into.
+ * @param format The format to define the packing information.
+ * @param ap The allocated vararg instance.  Note that the state of this
+ *           is indeterminant after the call.
+ * @return Reference to the internal buffer if successfully (re)allocated or
+ *         NULL on a memory allocation failure.
+ */
+uint8_t *WXBuffer_VPack(WXBuffer *buffer, const char *format, va_list ap);
+
+/**
+ * Unpack a set of values into the buffer according to the (modified) Perl
+ * binary pack format.  The packing mechanism recognizes the patterns
+ * 'aAbBhHcCsSlLqQnNvVxX', the <> modifiers (not !), the [] and *% length
+ * notation and groups (), along with the z and Z extensions as described
+ * in the Pack() method.
+ *
+ * @param buffer The buffer instance to unpack from.
+ * @param format The format to define the packing information.
+ * @param ... The argument set for the unpack, according to the format.
+ * @return Reference to the internal buffer if successfully parsed or
+ *         NULL on a memory allocation failure or packing error.
+ */
+uint8_t *WXBuffer_Unpack(WXBuffer *buffer, const char *format, ...);
+
+/**
+ * Identical to the above, but unpack based on an explicit varargs instance.
+ *
+ * @param buffer The buffer instance to unpack from.
+ * @param format The format to define the packing information.
+ * @param ap The allocated vararg instance.  Note that the state of this
+ *           is indeterminant after the call.
+ * @return Reference to the internal buffer if successfully parsed or
+ *         NULL on a memory allocation failure or packing error.
+ */
+uint8_t *WXBuffer_VUnpack(WXBuffer *buffer, const char *format, va_list ap);
+
+/**
  * Read the contents of the provided file descriptor into the buffer
  * (appended to the end of the buffer).
  *
@@ -149,7 +203,7 @@ ssize_t WXBuffer_ReadFile(WXBuffer *buffer, int fd, size_t length);
  * @param buffer The buffer instance to write from.
  * @param fd The file descriptor to read to.
  * @return The number of bytes written to the file, -1 on error (partial
- *         contents may be read).
+ *         contents may be written).
  */
 ssize_t WXBuffer_WriteFile(WXBuffer *buffer, int fd);
 

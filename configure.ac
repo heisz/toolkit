@@ -1,7 +1,7 @@
 #
 # Autoconf macro definitions for the generics toolkits.
 #
-# Copyright (C) 1999-2018 J.M. Heisz.  All Rights Reserved.
+# Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
 # See the LICENSE file accompanying the distribution your rights to use
 # this software.
 #
@@ -67,6 +67,11 @@ AC_ARG_WITH(label,
 # Build config.h for header availability determination
 AC_CHECK_HEADERS([fcntl.h])
 AC_CHECK_HEADERS([sys/time.h])
+AC_CHECK_HEADERS([arpa/inet.h])
+AC_CHECK_HEADERS([netinet/in.h])
+AC_CHECK_HEADERS([endian.h])
+AC_CHECK_HEADERS([sys/endian.h])
+AC_CHECK_HEADERS([byteswap.h])
 
 ####### All Done - Generate Configuration Specific Files #######
 
@@ -75,5 +80,5 @@ AC_CONFIG_FILES([Makefile
                  src/network/Makefile
                  src/nlp/Makefile
                  src/utility/Makefile
-                 test/Makefile])
+                 tests/Makefile])
 AC_OUTPUT
