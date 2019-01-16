@@ -1,7 +1,7 @@
 /*
  * Standard definitions and toolkits/wrappers for memory processing.
  *
- * Copyright (C) 1999-2018 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -14,8 +14,8 @@
  *
  * @param size The number of bytes to be allocated from the heap.
  */
-uint8_t *_WXMalloc(size_t size, int line, char *file) {
-    return (uint8_t *) malloc(size);
+void *_WXMalloc(size_t size, int line, char *file) {
+    return malloc(size);
 }
 
 /**
@@ -26,8 +26,8 @@ uint8_t *_WXMalloc(size_t size, int line, char *file) {
  * @param original The originally allocated block of memory to be resized.
  * @param size The number of bytes to be allocated from the heap.
  */
-uint8_t * _WXRealloc(uint8_t * original, size_t size, int line, char *file) {
-    return (uint8_t *) realloc(original, size);
+void *_WXRealloc(void *original, size_t size, int line, char *file) {
+    return realloc(original, size);
 }
 
 /**
@@ -36,6 +36,6 @@ uint8_t * _WXRealloc(uint8_t * original, size_t size, int line, char *file) {
  *
  * @param original The originally allocated block of memory to be freed.
  */
-void _WXFree(uint8_t *original, int line, char *file) {
+void _WXFree(void *original, int line, char *file) {
     free(original);
 }
