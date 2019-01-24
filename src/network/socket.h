@@ -1,7 +1,7 @@
 /*
  * General methods for network socket creation and processing.
  *
- * Copyright (C) 1997-2018 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2019 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -67,7 +67,18 @@ const char *WXSocket_GetErrorStr(int serrno);
 int WXSocket_ValidateHostIpAddr(char *hostIpAddr);
 
 /**
- * General method to open a client socket to the specified address target,
+ * Common method to allocate socket based on an address info definition.
+ *
+ * @param addrInfo The address (host, port, protocol) of the target to
+ *                 connect to, opaque instance of struct addrinfo.
+ * @param socketRef Pointer through which the created socket instance is
+ *                  returned (if applicable, depending on error conditions).
+ * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
+ */
+int WXSocket_AllocateSocket(void *addrInfo, wxsocket_t *socketRef);
+
+/**
+ * General method to open a TCP client socket to the specified address target,
  * supporting both synchronous and asynchronous connection models.
  *
  * @param addrInfo The address (host, port, protocol) of the target to
@@ -82,16 +93,15 @@ int WXSocket_ValidateHostIpAddr(char *hostIpAddr);
  *                   (a negative result indicates a connection timeout).
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSocket_OpenClient(void *addrInfo, wxsocket_t *socketRef,
-                        int32_t *timeoutRef);
+int WXSocket_OpenTCPClientByAddr(void *addrInfo, wxsocket_t *socketRef,
+                                 int32_t *timeoutRef);
 
 /**
- * Convenience wrapper to open a 'standard' client connection to the specified
- * target (wraps the more generic OpenClient call).
+ * Convenience wrapper to open a 'standard' TCP client connection to a named
+ * target instance with full resolution.
  *
  * @param hostIpAddr Hostname or IP address of the target system to connect to.
  * @param service Either the service name or the port number for the connection.
- * @param isTCP TRUE if this should be a TCP-based connection, FALSE for UDP.
  * @param socketRef Pointer through which the created socket instance is
  *                  returned (if applicable, depending on error conditions).
  * @param timeoutRef If NULL, perform a synchronous connection (method will not
@@ -102,8 +112,23 @@ int WXSocket_OpenClient(void *addrInfo, wxsocket_t *socketRef,
  *                   (a negative result indicates a connection timeout).
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSocket_OpenStdClient(char *hostIpAddr, char *service, int isTCP,
+int WXSocket_OpenTCPClient(char *hostIpAddr, char *service,
                            wxsocket_t *socketRef, int32_t *timeoutRef);
+
+/**
+ * Allocate a UDP socket instance with target address resolution.
+ *
+ * @param hostIpAddr Hostname or IP address of the target system to message.
+ * @param service Either the service name or the port number for the connection.
+ * @param socketRef Pointer through which the created socket instance is
+ *                  returned (if applicable, depending on error conditions).
+ * @param addrInfoRef Opaque reference to the resolved address info structure
+ *                    for the target address, if non-NULL.  Must be freed if
+ *                    returned.
+ * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
+ */
+int WXSocket_OpenUDPClient(char *hostIpAddr, char *service,
+                           wxsocket_t *socketRef, void **addrInfoRef);
 
 /**
  * Method to wait for read/write availability on the given socket handle.
@@ -118,10 +143,78 @@ int WXSocket_OpenStdClient(char *hostIpAddr, char *service, int isTCP,
  *                   the referenced value as the timeout in milliseconds.  The
  *                   time remaining will be returned through the same reference,
  *                   (a negative result indicates a connection timeout).
- * @return A mixture of WXNRC_READ_REQUIRED and/or WXNRC_WRITE_REQUIRED 
+ * @return A mixture of WXNRC_READ_REQUIRED and/or WXNRC_WRITE_REQUIRED
  *         (depending on input) if the wait condition is valid, a WXNRC_* error  *         code otherwise.
  */
 int WXSocket_Wait(wxsocket_t socketHandle, int condition, int32_t *timeoutRef);
+
+/**
+ * Wrapping method to read from a TCP socket instance (wrapper around recv()).
+ * Automatically consumes interrupts (EINTR).  Calling this method with a
+ * flagset of zero is equivalent to read().
+ *
+ * @param socketHandle The handle of the socket to read from.
+ * @param buf Reference to block of memory to be read into.
+ * @param len Number of bytes to attempt to read from the socket.
+ * @param flags Bitset of flags to control the read operation, setting to
+ *              zero is equivalent to read().
+ * @return Number of bytes read from the socket or one of the WXNRC_ error
+ *         codes.  Zero indicates a non-blocking wait condition with no
+ *         bytes read.
+ */
+ssize_t WXSocket_Recv(wxsocket_t socketHandle, void *buf, size_t len,
+                      int flags);
+
+/**
+ * Wrapping method to read from a UDP socket instance (wrapper around
+ * recvfrom()).  Automatically consumes interrupts (EINTR).
+ *
+ * @param socketHandle The handle of the socket to read from.
+ * @param buf Reference to block of memory to be read into.
+ * @param len Number of bytes to attempt to read from the socket.
+ * @param flags Bitset of flags to control the read operation.
+ * @param srcAddr Reference to sockaddr block to store message source address.
+ * @param addrLen Reference to return length of previous address block.
+ * @return Number of bytes read from the socket or one of the WXNRC_ error
+ *         codes.  Zero indicates a non-blocking wait condition with no
+ *         bytes read.
+ */
+ssize_t WXSocket_RecvFrom(wxsocket_t socketHandle, void *buf, size_t len,
+                          int flags, void *srcAddr, socklen_t *addrLen);
+
+/**
+ * Wrapping method to write to a TCP socket instance (wrapper around send()).
+ * Automatically consumes interrupts (EINTR).  Calling this method with a
+ * flagset of zero is equivalent to write().
+ *
+ * @param socketHandle The handle of the socket to write to.
+ * @param buf Reference to block of memory to be written.
+ * @param len Number of bytes to attempt to write to the socket.
+ * @param flags Bitset of flags to control the write operation, setting to
+ *              zero is equivalent to write().
+ * @return Number of bytes written to the socket or one of the WXNRC_ error
+ *         codes.  Zero indicates a non-blocking wait condition with no
+ *         bytes written.
+ */
+ssize_t WXSocket_Send(wxsocket_t socketHandle, const void *buf, size_t len,
+                      int flags);
+
+/**
+ * Wrapping method to write to a UDP socket instance (wrapper around sendto()).
+ * Automatically consumes interrupts (EINTR).
+ *
+ * @param socketHandle The handle of the socket to write to.
+ * @param buf Reference to block of memory to be written.
+ * @param len Number of bytes to attempt to write to the socket.
+ * @param flags Bitset of flags to control the write operation.
+ * @param destAddr Destination address to send the write to.
+ * @param addrLen Length of previous address information block.
+ * @return Number of bytes written to the socket or one of the WXNRC_ error
+ *         codes.  Zero indicates a non-blocking wait condition with no
+ *         bytes written.
+ */
+ssize_t WXSocket_SendTo(wxsocket_t socketHandle, void *buf, size_t len,
+                        int flags, void *destAddr, socklen_t addrLen);
 
 /**
  * Manage the blocking state of the socket.  Determines whether data access
@@ -130,8 +223,8 @@ int WXSocket_Wait(wxsocket_t socketHandle, int condition, int32_t *timeoutRef);
  * @param socketHandle The handle of the socket to manipulate.
  * @param isNonBlocking If TRUE, set the socket to non-blocking.  If FALSE,
  *                      set it to blocking.
- * @return TRUE if manipulation was successful, FALSE on error (check system
- *         error number).
+ * @return WXNRC_OK if successful, WXNRC_SYS_ERROR on failure (check system
+ *         error number for more information).
  */
 int WXSocket_SetNonBlockingState(wxsocket_t socketHandle, int setNonBlocking);
 
