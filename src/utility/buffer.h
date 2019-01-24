@@ -134,7 +134,8 @@ uint8_t *WXBuffer_Printf(WXBuffer *buffer, const char *format, ...)
  * binary pack format.  The packing mechanism recognizes the fixed patterns
  * 'aAbBhHcCsSlLqQnNvVxX', the <> modifiers (not !), the [] and *% length
  * notation and groups ().  Also recognizes z and Z for network and vax ordered
- * 64-bit unsigned values (like nN and vV).
+ * 64-bit unsigned values (like nN and vV).  And y and Y for base-128 varints of
+ * 32-bit and 64-bit length respectively.
  *
  * @param buffer The buffer instance to pack into.
  * @param format The format to define the packing information.
@@ -160,7 +161,7 @@ uint8_t *WXBuffer_VPack(WXBuffer *buffer, const char *format, va_list ap);
  * Unpack a set of values into the buffer according to the (modified) Perl
  * binary pack format.  The packing mechanism recognizes the patterns
  * 'aAbBhHcCsSlLqQnNvVxX', the <> modifiers (not !), the [] and *% length
- * notation and groups (), along with the z and Z extensions as described
+ * notation and groups (), along with the zZ and yY extensions as described
  * in the Pack() method.
  *
  * @param buffer The buffer instance to unpack from.

@@ -261,6 +261,12 @@ static void testPack() {
     BCHK(buffer, ((uint8_t[]) { 0x34, 0x12, 0x78, 0x56, 0x43, 0x21,
                                 0x87, 0x65, 0x13, 0x57, 0x86, 0x42 }),
          "group packing");
+
+    /* Until we add other stuff */
+    WXBuffer_Empty(&buffer);
+    WXBuffer_Pack(&buffer, "yYyY", 300, (uint64_t) 0, 12, 1234567);
+    BCHK(buffer, ((uint8_t[]) { 0xAC, 0x02, 0x00, 0x0C, 0x87, 0xAD, 0x4B }),
+         "varint packing");
 }
 
 /* Ditto... */
@@ -461,6 +467,14 @@ static void testUnpack() {
             (sha != 0x1234) || (shb !=  0x5678) || (shc !=  0x4321) ||
             (shd != 0x8765) || (she !=  0x1357) || (shf !=  0x8642)) {
        (void) fprintf(stderr, "ERROR: invalid group unpack\n");
+       exit(1);
+    }
+
+    /* Until we add other stuff */
+    BPCK(buffer, ((uint8_t[]) { 0xAC, 0x02, 0x02, 0x0C, 0x87, 0xAD, 0x4B }));
+    if ((WXBuffer_Unpack(&buffer, "yYy*", &lda, &lldb, &ldc, &ldd) == NULL) ||
+            (lda != 300) || (lldb != 2) || (ldc != 12) || (ldd != 1234567)) {
+       (void) fprintf(stderr, "ERROR: invalid varint unpack\n");
        exit(1);
     }
 }

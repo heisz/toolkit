@@ -270,7 +270,8 @@ static char hexchars[] = { '0', '1', '2', '3', '4', '5', '6', '7',
  * binary pack format.  The packing mechanism recognizes the fixed patterns
  * 'aAbBhHcCsSlLqQnNvVxX', the <> modifiers (not !), the [] and *% length
  * notation and groups ().  Also recognizes z and Z for network and vax ordered
- * 64-bit unsigned values (like nN and vV).
+ * 64-bit unsigned values (like nN and vV). And y and Y for base-128 varints of
+ * 32-bit and 64-bit length respectively.
  *
  * Note: this is implemented in recursive form for proper group support.
  *
@@ -562,8 +563,8 @@ static uint8_t *_pack(WXBuffer *buffer, const char *format, size_t flen,
             /* Signed/unsigned 8-bit value */
             case 'c':
             case 'C':
-                if (repeatCount == RPT_VAR_LEN) repeatCount = 1;
                 if (isPack) {
+                    if (repeatCount == RPT_VAR_LEN) repeatCount = 1;
                     if (WXBuffer_EnsureCapacity(buffer, repeatCount,
                                                 TRUE) == NULL) return NULL;
                     ptr = buffer->buffer + buffer->length;
@@ -593,8 +594,8 @@ static uint8_t *_pack(WXBuffer *buffer, const char *format, size_t flen,
             case 'n':
             /* Vax (little-endian) unsigned 16-bit value */
             case 'v':
-                if (repeatCount == RPT_VAR_LEN) repeatCount = 1;
                 if (isPack) {
+                    if (repeatCount == RPT_VAR_LEN) repeatCount = 1;
                     if (WXBuffer_EnsureCapacity(buffer, repeatCount * 2,
                                                 TRUE) == NULL) return NULL;
                     ptr = buffer->buffer + buffer->length;
@@ -638,8 +639,8 @@ static uint8_t *_pack(WXBuffer *buffer, const char *format, size_t flen,
             case 'N':
             /* Vax (little-endian) unsigned 32-bit value */
             case 'V':
-                if (repeatCount == RPT_VAR_LEN) repeatCount = 1;
                 if (isPack) {
+                    if (repeatCount == RPT_VAR_LEN) repeatCount = 1;
                     if (WXBuffer_EnsureCapacity(buffer, repeatCount * 4,
                                                 TRUE) == NULL) return NULL;
                     ptr = buffer->buffer + buffer->length;
@@ -682,8 +683,8 @@ static uint8_t *_pack(WXBuffer *buffer, const char *format, size_t flen,
             case 'z':
             /* Vax (little-endian) unsigned 64-bit value */
             case 'Z':
-                if (repeatCount == RPT_VAR_LEN) repeatCount = 1;
                 if (isPack) {
+                    if (repeatCount == RPT_VAR_LEN) repeatCount = 1;
                     if (WXBuffer_EnsureCapacity(buffer, repeatCount * 8,
                                                 TRUE) == NULL) return NULL;
                     ptr = buffer->buffer + buffer->length;
@@ -758,6 +759,57 @@ static uint8_t *_pack(WXBuffer *buffer, const char *format, size_t flen,
                     }
                 }
                 break;
+
+            /* Handle 32-bit and 64-bit varints */
+            case 'y':
+            case 'Y':
+                if (isPack) {
+                    if (repeatCount == RPT_VAR_LEN) repeatCount = 1;
+                    if (WXBuffer_EnsureCapacity(buffer, repeatCount * 10,
+                                                TRUE) == NULL) return NULL;
+                    ptr = buffer->buffer + buffer->length;
+                    while (repeatCount > 0) {
+                        if (token == 'y') {
+                            llval = (uint64_t) va_arg(*ap, uint32_t);
+                        } else {
+                            llval = (uint64_t) va_arg(*ap, uint64_t);
+                        }
+                        if (llval == 0) {
+                            *(ptr++) = 0x0;
+                            buffer->length++;
+                        } else {
+                            while (llval != 0) {
+                                bval = (uint8_t) (llval & 0x7F);
+                                llval = llval >> 7;
+                                if (llval != 0) bval |= 0x80;
+                                *(ptr++) = bval;
+                                buffer->length++;
+                            }
+                        }
+                        repeatCount--;
+                    }
+                } else {
+                    llval = idx = 0;
+                    ptr = buffer->buffer + buffer->offset;
+                    while (((repeatCount > 0) ||
+                                      (repeatCount == RPT_VAR_LEN)) &&
+                               (buffer->offset < buffer->length)) {
+                        bval = *(ptr++);
+                        buffer->offset++;
+                        llval |= (bval & 0x7F) << idx;
+                        idx += 7;
+                        if ((bval & 0x80) == 0) {
+                            if (token == 'y') {
+                                *(va_arg(*ap, uint32_t *)) = (uint32_t) llval;
+                            } else {
+                                *(va_arg(*ap, uint64_t *)) = llval;
+                            }
+                            llval = idx = 0;
+                            if (repeatCount > 0) repeatCount--;
+                        }
+                    }
+                }
+                break;
         }
     }
 
@@ -797,7 +849,7 @@ uint8_t *WXBuffer_VPack(WXBuffer *buffer, const char *format, va_list ap) {
  * Unpack a set of values into the buffer according to the (modified) Perl
  * binary pack format.  The packing mechanism recognizes the patterns
  * 'aAbBhHcCsSlLqQnNvVxX', the <> modifiers (not !), the [] and *% length
- * notation and groups (), along with the z and Z extensions as described
+ * notation and groups (), along with the zZ and yY extensions as described
  * in the Pack() method.
  *
  * @param buffer The buffer instance to unpack from.
