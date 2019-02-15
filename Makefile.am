@@ -13,7 +13,10 @@ SUBDIRS = src tests
 noinst_LTLIBRARIES = libtoolkit.la
 
 libtoolkit_la_SOURCES = toolkit.c
-libtoolkit_la_LIBADD = src/network/socket.lo
+libtoolkit_la_LIBADD = src/network/socket.lo \
+                       src/utility/buffer.lo \
+                       src/utility/hash.lo \
+                       src/utility/mem.lo
 
 # Removes the automake/autoconf generated files for ultra-clean source tree
 MAINTAINERCLEANFILES = config.cache config.log config.status Makefile.in \

@@ -7,14 +7,20 @@
 #
 
 # Just a bunch of test programs
-bin_PROGRAMS = buffer
+bin_PROGRAMS = buffer hash
 
-# Network tests
+# Lots of test cases
 buffer_SOURCES = buffer.c
 buffer_LDADD = $(top_builddir)/src/utility/buffer.lo \
                $(top_builddir)/src/utility/mem.lo \
                -ldl -lm
 buffer_LDFLAGS = -static
+
+hash_SOURCES = hash.c
+hash_LDADD = $(top_builddir)/src/utility/hash.lo \
+             $(top_builddir)/src/utility/mem.lo \
+             -ldl -lm
+hash_LDFLAGS = -static
 
 # Related inclusion locations and other options
 AM_CPPFLAGS = -I$(top_srcdir) \
