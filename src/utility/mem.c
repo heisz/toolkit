@@ -13,6 +13,8 @@
  * tracking/allocation mechanisms.
  *
  * @param size The number of bytes to be allocated from the heap.
+ * @return Reference to the allocated block of memory or NULL if heap 
+ *         allocation fails.
  */
 void *_WXMalloc(size_t size, int line, char *file) {
     return malloc(size);
@@ -25,6 +27,8 @@ void *_WXMalloc(size_t size, int line, char *file) {
  *
  * @param original The originally allocated block of memory to be resized.
  * @param size The number of bytes to be allocated from the heap.
+ * @return Reference to the reallocated block of memory or NULL if heap
+ *         allocation fails.
  */
 void *_WXRealloc(void *original, size_t size, int line, char *file) {
     return realloc(original, size);

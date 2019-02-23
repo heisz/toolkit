@@ -72,9 +72,7 @@ typedef void *(*WXKeyDupFn)(void *key);
 
 /**
  * Callback method for enumerating entries within a hashtable.  Allows for
- * termination of the scanning through the return code.  NOTE: the hashtable
- * should only be modified during scanning using the "safe" methods such
- * as HashScanRemoveEntry below.
+ * termination of the scanning through the return code.
  *
  * @param table The hashtable which is currently being scanned.
  * @param key The key associated with the currently scanned entry.
@@ -83,8 +81,8 @@ typedef void *(*WXKeyDupFn)(void *key);
  * @return Zero if scan is to continue, non-zero if scan is to be terminated
  *         (error or matching complete, value is returned from scan).
  */
-typedef int (*WXEntryScanCB)(WXHashTable *table, void *key, void *obj,
-                             void *userData);
+typedef int (*WXHashEntryScanCB)(WXHashTable *table, void *key, void *object,
+                                 void *userData);
 
 /**
  * Initialize a hash table instance to the given number of base hash points.
@@ -241,8 +239,8 @@ int WXHash_Duplicate(WXHashTable *dest, WXHashTable *source,
                      WXKeyDupFn keyDupFn);
 
 /**
- * Scan through all entries in a hashtable, calling the specified
- * callback function for each valid hashtable entry.
+ * Scan through all entries in a hashtable, calling the specified callback
+ * function for each valid hashtable entry.
  *
  * @param table The hashtable containing the entries to be scanned.
  * @param entryCB A function reference which is called for each valid entry
@@ -252,7 +250,7 @@ int WXHash_Duplicate(WXHashTable *dest, WXHashTable *source,
  * @return Zero if the scan was completed, any other value indicates the scan
  *         was interrupted by the callback with the given value.
  */
-int WXHash_Scan(WXHashTable *table, WXEntryScanCB entryCB, void *userData);
+int WXHash_Scan(WXHashTable *table, WXHashEntryScanCB entryCB, void *userData);
 
 /**
  * Destroy the internals of the hashtable instance.  This does not free the

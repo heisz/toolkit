@@ -49,9 +49,9 @@ typedef struct WXBuffer {
  *
  * @param buffer The buffer instance to be initialized.
  * @param size The number of bytes to be preallocated into the buffer.  Note
- *             that a size of zero will generate an empty buffer.
+ *             that a size of zero is allowed but will not allocate a buffer.
  * @return Reference to the internal buffer if successfully allocated or
- *         NULL on a memory allocation failure.
+ *         NULL on a memory allocation failure (if size is non-zero).
  */
 uint8_t *WXBuffer_Init(WXBuffer *buffer, size_t size);
 

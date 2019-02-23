@@ -422,8 +422,8 @@ int WXHash_Duplicate(WXHashTable *dest, WXHashTable *source,
 }
 
 /**
- * Scan through all entries in a hashtable, calling the specified
- * callback function for each valid hashtable entry.
+ * Scan through all entries in a hashtable, calling the specified callback
+ * function for each valid hashtable entry.
  *
  * @param table The hashtable containing the entries to be scanned.
  * @param entryCB A function reference which is called for each valid entry
@@ -433,7 +433,7 @@ int WXHash_Duplicate(WXHashTable *dest, WXHashTable *source,
  * @return Zero if the scan was completed, any other value indicates the scan
  *         was interrupted by the callback with the given value.
  */
-int WXHash_Scan(WXHashTable *table, WXEntryScanCB entryCB, void *userData) {
+int WXHash_Scan(WXHashTable *table, WXHashEntryScanCB entryCB, void *userData) {
     struct WXHashEntry *entry = table->entries;
     unsigned int tblSize = table->tableMask + 1;
     int rc;

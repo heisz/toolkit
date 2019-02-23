@@ -7,9 +7,15 @@
 #
 
 # Just a bunch of test programs
-bin_PROGRAMS = buffer hash
+bin_PROGRAMS = array buffer hash
 
 # Lots of test cases
+array_SOURCES = array.c
+array_LDADD = $(top_builddir)/src/utility/array.lo \
+              $(top_builddir)/src/utility/mem.lo \
+              -ldl -lm
+array_LDFLAGS = -static
+
 buffer_SOURCES = buffer.c
 buffer_LDADD = $(top_builddir)/src/utility/buffer.lo \
                $(top_builddir)/src/utility/mem.lo \
