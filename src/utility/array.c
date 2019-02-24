@@ -105,15 +105,17 @@ static void *WXArray_EnsureCapacity(WXArray *array, size_t capacity) {
  *
  * @param array The array to push the object onto.
  * @param object The opaque object instance to push onto the array.
- * @return Reference to the internal array if successfully (re)allocated or
- *         NULL on a memory allocation failure.
+ * @return Reference to the pushed *record* on the internal array if
+ *         successfully (re)allocated or NULL on a memory allocation failure.
  */
 void *WXArray_Push(WXArray *array, void *object) {
+    uint8_t *endPtr;
+
     if (WXArray_EnsureCapacity(array, 1) == NULL) return NULL;
-    (void) memcpy(((uint8_t *) array->array) +
-                                     ((array->length++) * array->objectSize),
-                  object, array->objectSize);
-    return array->array;
+    endPtr = ((uint8_t *) array->array) +
+                              ((array->length++) * array->objectSize);
+    (void) memcpy(endPtr, object, array->objectSize);
+    return endPtr;
 }
 
 /**
@@ -140,7 +142,8 @@ void *WXArray_Pop(WXArray *array, void *object) {
  * @param array The array to insert the object into.
  * @param object The opaque object instance to insert into the array.
  * @return Reference to the internal array if successfully (re)allocated or
- *         NULL on a memory allocation failure.
+ *         NULL on a memory allocation failure.  Note that this is also a 
+ *         a reference to the pushed object as well.
  */        
 void *WXArray_Unshift(WXArray *array, void *object) {
     if (WXArray_EnsureCapacity(array, 1) == NULL) return NULL;
