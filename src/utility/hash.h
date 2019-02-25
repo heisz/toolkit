@@ -98,6 +98,15 @@ typedef int (*WXHashEntryScanCB)(WXHashTable *table, void *key, void *object,
 int WXHash_InitTable(WXHashTable *table, int startSize);
 
 /**
+ * Reset/empty the contents of the hashtable.  Resets the internal data as
+ * if it were a newly allocated hashtable.
+ *
+ * @param table The hashtable instance to be emptied.  Note that this will not
+ *              release any internal references.
+ */
+void WXHash_Empty(WXHashTable *table);
+
+/**
  * Store an object into a hashtable.  Hashtable will expand as necessary,
  * and object will replace an already existing object with an equal key
  * according to the provided hash/comparison functions.  If an existing object

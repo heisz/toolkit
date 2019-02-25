@@ -42,14 +42,20 @@ static void *ResidualMarker = (void *) "xyzzy";
 int WXHash_InitTable(WXHashTable *table, int startSize) {
     unsigned int nByTwo = 1;
 
-    /* Start small, grow big */
-    if (startSize < 0x1F) startSize = 0x1F;
-    while (nByTwo <= startSize) nByTwo = nByTwo << 1;
-    startSize = nByTwo - 1;
+    /* Zero or minimal size, must be 2^n - 1 */
+    if (startSize != 0) {
+        if (startSize < 0x1F) startSize = 0x1F;
+        while (nByTwo <= startSize) nByTwo = nByTwo << 1;
+        startSize = nByTwo - 1;
+    }
 
     /* Initialize the hash specific details */
-    table->entries = ENTRY_ALLOC(startSize + 1);
-    if (table->entries == NULL) return FALSE;
+    if (startSize != 0) {
+        table->entries = ENTRY_ALLOC(startSize + 1);
+        if (table->entries == NULL) return FALSE;
+    } else {
+        table->entries = NULL;
+    }
     table->tableMask = startSize;
     table->entryCount = 0;
     table->occupied = 0;
@@ -65,12 +71,26 @@ int WXHash_InitTable(WXHashTable *table, int startSize) {
  * @param table The hashtable instance to destroy.
  */
 void WXHash_Destroy(WXHashTable *table) {
-    WXFree(table->entries);
-
+    if (table->entries != NULL) WXFree(table->entries);
     table->entries = NULL;
     table->tableMask = 0;
     table->entryCount = 0;
     table->occupied = 0;
+}
+
+/**
+ * Reset/empty the contents of the hashtable.  Resets the internal data as
+ * if it were a newly allocated hashtable.
+ *
+ * @param table The hashtable instance to be emptied.  Note that this will not
+ *              release any internal references.
+ */
+void WXHash_Empty(WXHashTable *table) {
+    table->entryCount = 0;
+    table->occupied = 0;
+    if (table->entries != NULL) {
+        (void) memset(table->entries, 0, table->tableMask + 1);
+    }
 }
 
 /*
@@ -80,6 +100,14 @@ void WXHash_Destroy(WXHashTable *table) {
 static int checkTableOccupancy(WXHashTable *table) {
     unsigned int idx, index, jump, origMask;
     struct WXHashEntry *newEntries, *entry = NULL;
+
+    /* First time caller on an empty allocated hashtable */
+    if (table->entries == NULL) {
+        table->entries = ENTRY_ALLOC(0x20);
+        if (table->entries == NULL) return FALSE;
+        table->tableMask = 0x1F;
+        return TRUE;
+    }
 
     /* Check for less than optimal collision fill */
     if ((table->occupied + (table->occupied >> 1)) <= table->tableMask) {
@@ -127,6 +155,11 @@ static int pushHashEntry(WXHashTable *table, void *key, void *object,
     unsigned int index, jump, hashCode = 0;
     struct WXHashEntry *entry = NULL;
     int firstResidualIndex;
+
+    /* Deferred initialization on first entry */
+    if (table->entries == NULL) {
+        if (!checkTableOccupancy(table)) return FALSE;
+    }
 
     /* First, find a slot to be used or replaced */
     firstResidualIndex = -1;
@@ -259,6 +292,7 @@ static struct WXHashEntry *findEntry(WXHashTable *table, void *key,
     struct WXHashEntry *entry = NULL;
 
     /* See if we can find the record in question */
+    if (table->entries == NULL) return NULL;
     hashCode = (*keyHashFn)(key);
     index = HASHSTART(table, hashCode);
     if ((entry = &(table->entries[index]))->object != NULL) {
@@ -300,7 +334,7 @@ int WXHash_RemoveEntry(WXHashTable *table, void *key,
     struct WXHashEntry *entry = findEntry(table, key, keyHashFn, keyEqualsFn);
 
     /* Process appropriately based on discovery */
-    if (entry->object != NULL) {
+    if ((entry != NULL) && (entry->object != NULL)) {
         if (origKey != NULL) *origKey = entry->key;
         if (origObject != NULL) *origObject = entry->object;
 
@@ -333,7 +367,7 @@ void *WXHash_GetEntry(WXHashTable *table, void *key,
     /* Easy with common find */
     struct WXHashEntry *entry = findEntry(table, key, keyHashFn, keyEqualsFn);
 
-    return entry->object;
+    return (entry == NULL) ? NULL : entry->object;
 }
 
 /**
@@ -361,10 +395,15 @@ int WXHash_GetFullEntry(WXHashTable *table, void *key,
     /* Easy with common find */
     struct WXHashEntry *entry = findEntry(table, key, keyHashFn, keyEqualsFn);
 
-    if (retKey != NULL) *retKey = entry->key;
-    if (retObject != NULL) *retObject = entry->object;
-
-    return ((entry->object != NULL) ? TRUE : FALSE);
+    if (entry != NULL) {
+        if (retKey != NULL) *retKey = entry->key;
+        if (retObject != NULL) *retObject = entry->object;
+        return ((entry->object != NULL) ? TRUE : FALSE);
+    } else {
+        if (retKey != NULL) *retKey = NULL;
+        if (retObject != NULL) *retObject = NULL;
+        return FALSE;
+    }
 }
 
 /**
@@ -394,6 +433,12 @@ int WXHash_Duplicate(WXHashTable *dest, WXHashTable *source,
     dest->tableMask = source->tableMask;
     dest->entryCount = source->entryCount;
     dest->occupied = source->occupied;
+
+    /* Pretty easy if duplicating empty */
+    if (source->entries == NULL) {
+        dest->entries = NULL;
+        return TRUE;
+    }
 
     /* Duplicate the hash record information */
     dest->entries = ENTRY_ALLOC(dest->tableMask + 1);
