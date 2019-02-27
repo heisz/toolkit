@@ -19,7 +19,7 @@ struct WXHashEntry {
 
 /* Convenience macro for (re)allocation */
 #define ENTRY_ALLOC(cnt) \
-    (struct WXHashEntry *) WXMalloc((cnt) * sizeof(struct WXHashEntry))
+    (struct WXHashEntry *) WXCalloc((cnt) * sizeof(struct WXHashEntry))
 
 /* Marker for filled but not occupied slots in the table */
 static void *ResidualMarker = (void *) "xyzzy";

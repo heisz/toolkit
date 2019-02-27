@@ -21,6 +21,18 @@ void *_WXMalloc(size_t size, int line, char *file) {
 }
 
 /**
+ * Identical to WXMalloc except for the automatica initialization of the
+ * memory to 0/null.  Not entirely consistent with calloc().
+ * 
+ * @param size The number of bytes to be allocated from the heap.
+ * @return Reference to the allocated block of memory or NULL if heap
+ *         allocation fails.
+ */
+void *_WXCalloc(size_t size, int line, char *file) {
+    return calloc(1, size);
+}
+
+/**
  * Common wrapper for memory reallocation operations.  Allows for failure
  * debugging (automatic source wrapping) along with support for replacable
  * tracking/allocation mechanisms.
