@@ -108,7 +108,6 @@ int main(int argc, char **argv) {
     WXArray_Destroy(&array);
 
     (void) WXArray_Init(&array, Misaligned, 0);
-
     for (idx = 0; idx < 128; idx++) {
         tst.ch = 0x20 + idx;
         tst.ptr = (void *) (intptr_t) idx;
@@ -126,6 +125,7 @@ int main(int argc, char **argv) {
             }
         }
     }
+    WXArray_Destroy(&array);
 
     return 0;
 }
