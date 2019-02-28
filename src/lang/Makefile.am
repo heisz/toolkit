@@ -6,8 +6,15 @@
 # this software.
 #
 
-# Just one step in the path to the source packages
-SUBDIRS = lang network utility
+# Use the autoconf library constructor for compilation but don't install it
+noinst_LTLIBRARIES = liblang.la
+
+# Corresponding sources
+liblang_la_SOURCES = json.c
+
+# Related inclusion locations and other options
+AM_CPPFLAGS = -I$(top_srcdir) \
+              -I$(top_srcdir)/src/utility
 
 # Removes the automake/autoconf generated files for ultra-clean source tree
 MAINTAINERCLEANFILES = Makefile.in

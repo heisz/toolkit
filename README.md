@@ -26,6 +26,12 @@ context and descriptions to the origins and intents of the various bits found
 in this toolkit.  That may provide clues to an intended or possible use for
 the underlying code (or even just an understanding of it...)
 
+### lang
+
+This directory contains various language parsing/processing implementations,
+both for data encoding as well as execution frameworks.  They have varying
+levels of 'compliance' with the associated language specifications.
+
 ### network
 
 Over twenty+ years, I seem to continuously repeat a cycle of application

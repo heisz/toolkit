@@ -77,8 +77,8 @@ AC_CHECK_HEADERS([byteswap.h])
 
 AC_CONFIG_FILES([Makefile
                  src/Makefile
+                 src/lang/Makefile
                  src/network/Makefile
-                 src/nlp/Makefile
                  src/utility/Makefile
                  tests/Makefile])
 AC_OUTPUT

@@ -7,7 +7,7 @@
 #
 
 # Just a bunch of test programs
-bin_PROGRAMS = array buffer hash
+bin_PROGRAMS = array buffer hash json
 
 # Lots of test cases
 array_SOURCES = array.c
@@ -28,8 +28,18 @@ hash_LDADD = $(top_builddir)/src/utility/hash.lo \
              -ldl -lm
 hash_LDFLAGS = -static
 
+json_SOURCES = json.c
+json_LDADD = $(top_builddir)/src/lang/json.lo \
+             $(top_builddir)/src/utility/array.lo \
+             $(top_builddir)/src/utility/hash.lo \
+             $(top_builddir)/src/utility/buffer.lo \
+             $(top_builddir)/src/utility/mem.lo \
+             -ldl -lm
+json_LDFLAGS = -static
+
 # Related inclusion locations and other options
 AM_CPPFLAGS = -I$(top_srcdir) \
+              -I$(top_srcdir)/src/lang \
               -I$(top_srcdir)/src/network \
               -I$(top_srcdir)/src/utility
 
