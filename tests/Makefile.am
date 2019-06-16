@@ -7,7 +7,7 @@
 #
 
 # Just a bunch of test programs
-bin_PROGRAMS = array buffer hash json
+bin_PROGRAMS = array buffer hash json thread
 
 # Lots of test cases
 array_SOURCES = array.c
@@ -36,6 +36,12 @@ json_LDADD = $(top_builddir)/src/lang/json.lo \
              $(top_builddir)/src/utility/mem.lo \
              -ldl -lm
 json_LDFLAGS = -static
+
+thread_SOURCES = thread.c
+thread_LDADD = $(top_builddir)/src/utility/thread.lo \
+               $(top_builddir)/src/utility/mem.lo \
+               -ldl -lm
+thread_LDFLAGS = -lpthread -static
 
 # Related inclusion locations and other options
 AM_CPPFLAGS = -I$(top_srcdir) \

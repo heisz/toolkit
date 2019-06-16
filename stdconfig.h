@@ -1,7 +1,7 @@
 /*
  * Core standard inclusions for all C-based toolkit codebase.
  *
- * Copyright (C) 1999-2018 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -12,8 +12,16 @@
 #include "config.h"
 #endif
 
+/* Capture Windows environment determination */
+#if defined(WIN32) || defined(_WIN32) || \
+	 defined(__WIN32) && !defined(__CYGWIN__)
+#define _WXWIN_BUILD
+#endif
+
 /* Past experience has shown that pthreads needs to be loaded first (AIX...) */
+#ifndef _WXWIN_BUILD
 #include <pthread.h>
+#endif
 
 #ifdef HAVE_STDINT_H
 #include <stdint.h>
