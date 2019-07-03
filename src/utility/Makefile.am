@@ -10,7 +10,7 @@
 noinst_LTLIBRARIES = libutility.la
 
 # Corresponding sources
-libutility_la_SOURCES = array.c buffer.c hash.c mem.c thread.c
+libutility_la_SOURCES = array.c buffer.c daemon.c hash.c log.c mem.c thread.c
 
 # Related inclusion locations and other options
 AM_CPPFLAGS = -I$(top_srcdir)

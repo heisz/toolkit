@@ -23,6 +23,10 @@ static const char *logLevelNames[] = {
      "Error", "Warn", "Info", "Debug", "Trace"
 };
 
+static const char *shortLogLevelNames[] = {
+     "Err", "Wrn", "Inf", "Dbg", "Trc"
+};
+
 static FILE *logFileHandles[5];
 
 /**
@@ -44,11 +48,11 @@ void WXLog_Init(const char *appName, const char *logFileName) {
 
     /* If specified, change the logging handles to the target file instance */
     if (logFileName != NULL) {
-        fp = fopen(logFileName, "w+");
+        fp = fopen(logFileName, "a+");
         if (fp != NULL) {
             logFileHandles[WXLOG_ERROR] = logFileHandles[WXLOG_WARN] =
                 logFileHandles[WXLOG_INFO] = logFileHandles[WXLOG_DEBUG] =
-                logFileHandles[WXLOG_TRACE];
+                logFileHandles[WXLOG_TRACE] = fp;
             return;
         }
     }
@@ -96,10 +100,13 @@ void _WXLog_Print(const char *fileName, const int lineNum, WXLogLevel level,
     WXThread_TimeSpec tmspec;
     size_t allocLen = 0, len;
     struct tm *tm, ltm;
+    FILE *logFp;
     va_list ap;
 
-    /* Just in case someone forgot to initialize */
-    if (logFileHandles[0] == NULL) WXLog_Init(NULL, NULL);
+    /* Capture pre-initialization conditions */
+    if ((logFp = logFileHandles[level]) == NULL) {
+        logFp = (level < WXLOG_INFO) ? stderr : stdout;
+    }
 
     /* Grab the logging time right up front */
     WXThread_GetEpochTime(&tmspec);
@@ -145,9 +152,10 @@ void _WXLog_Print(const char *fileName, const int lineNum, WXLogLevel level,
                    ltm.tm_hour, ltm.tm_min, ltm.tm_sec,
                    (int) (tmspec.tv_nsec / 1000000L));
 
-    (void) fprintf(logFileHandles[level], "%s:%s[%s:%d] %s\n",
-                   logLevelNames[level], timestamp, logFileBaseName(fileName),
-                   lineNum, msgPtr);
+    (void) fprintf(logFp, "%s %c [%s:%d] %s\n",
+                   timestamp, *(shortLogLevelNames[level]),
+                   logFileBaseName(fileName), lineNum, msgPtr);
+    (void) fflush(logFp);
 
     /* Clean up if buffer was allocated */
     if (msgPtr != message) WXFree(msgPtr);
