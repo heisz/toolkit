@@ -411,6 +411,30 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
+    /* Play with the finder */
+    sub = WXJSON_Find(value, "empty_obj");
+    if ((sub == NULL) || (sub->type != WXJSONVALUE_OBJECT) ||
+            (sub->value.oval.entryCount != 0)) {
+        (void) fprintf(stderr, "Find found incorrect object (empty)\n");
+        exit(1);
+    }
+    sub = WXJSON_Find(value, "occ_obj.int_key");
+    if ((sub == NULL) || (sub->type != WXJSONVALUE_INT) ||
+            (sub->value.ival != 12345)) {
+        (void) fprintf(stderr, "Find found incorrect object (int)\n");
+        exit(1);
+    }
+    sub = WXJSON_Find(value, "occ_obj.int_key.nope");
+    if (sub != NULL) {
+        (void) fprintf(stderr, "Eh?  Found child for non-object\n");
+        exit(1);
+    }
+    sub = WXJSON_Find(value, "empty_obj.nope");
+    if (sub != NULL) {
+        (void) fprintf(stderr, "Eh?  Found child for missing entry\n");
+        exit(1);
+    }
+
     /* Cleanup */
     WXJSON_Destroy(value);
 

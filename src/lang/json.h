@@ -147,4 +147,17 @@ char *WXJSON_Encode(WXBuffer *buffer, WXJSONValue *value, int prettyPrint);
  */
 void WXJSON_Destroy(WXJSONValue *value);
 
+/**
+ * Quick utility method to locate a JSON value entry based on a fully qualified
+ * child node name.  Cannot (currently) cross array boundaries...
+ *
+ * @param root The parsed JSON node value to search from.
+ * @param childName Fully qualified (period-delimited) name of the child node to
+ *             retrieve.  An internal copy is made in local stack space, names
+ *             over the internal alloc limit will not be found (truncation).
+ * @return The child node, if located, or NULL if any entry in the name is not
+ *         found.
+ */
+WXJSONValue *WXJSON_Find(WXJSONValue *root, const char *childName);
+
 #endif

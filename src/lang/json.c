@@ -881,3 +881,43 @@ char *WXJSON_Encode(WXBuffer *buffer, WXJSONValue *value, int prettyPrint) {
 void WXJSON_Destroy(WXJSONValue *value) {
     _WXJSON_Destroy(value, TRUE);
 }
+
+/**
+ * Quick utility method to locate a JSON value entry based on a fully qualified
+ * child node name.  Cannot (currently) cross array boundaries...
+ *
+ * @param root The parsed JSON node value to search from.
+ * @param childName Fully qualified (period-delimited) name of the child node to
+ *             retrieve.  An internal copy is made in local stack space, names
+ *             over the internal alloc limit will not be found (truncation).
+ * @return The child node, if located, or NULL if any entry in the name is not
+ *         found.
+ */
+WXJSONValue *WXJSON_Find(WXJSONValue *root, const char *childName) {
+    char *ptr, *eptr, name[4096];
+    WXJSONValue *child;
+
+    /* Copy for manipulation */
+    (void) strncpy(name, childName, sizeof(name));
+    (void) strcpy(name + sizeof(name) - 5, "---");
+    ptr = name;
+
+    /* Away we go... */
+    while (*ptr != '\0') {
+        /* At any point, looking for the child of a non-object is a fail... */
+        if (root->type != WXJSONVALUE_OBJECT) return NULL;
+
+        /* Find the next step in the chain, which could be the end */
+        eptr = strchr(ptr, '.');
+        if (eptr != NULL) *eptr = '\0';
+        child = WXHash_GetEntry(&(root->value.oval), ptr,
+                                WXHash_StrHashFn, WXHash_StrEqualsFn);
+        if ((child == NULL) || (eptr == NULL)) return child;
+
+        /* Next please... */
+        ptr = eptr + 1;
+        root = child;
+    }
+
+    return NULL;
+}
