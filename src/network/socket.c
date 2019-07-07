@@ -22,16 +22,19 @@
 #endif
 
 /* Redirect appropriately for the Windows/Unix based network error handling */
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
 #define sockErrNo WSAGetLastError()
 #else
 #define sockErrNo errno
 #endif
 
-/* Internal method to manage millisecond timings. */
-/* NOTE: on windows, this is *not* epoch time (but don't care for intervals)! */
-static int64_t _wxmillitime() {
-#ifdef WIN32
+/**
+ * Used in various points in the networking code, globalize it.  Returns
+ * a consistent millisecond timing amount (not necessarily epoch time) for
+ * handling timeout determination.
+ */
+int64_t WXSocket_MilliTime() {
+#ifdef _WXWIN_BUILD
     FILETIME fTime;
     ULARGE_INTEGER iTime;
 
@@ -59,7 +62,7 @@ int WXSocket_GetSystemErrNo() {
 
 /* Internal method to set a specific error number */
 void _setSockErrNo(int errnum) {
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
     WSASetLastError(errnum);
 #else
     errno = errnum;
@@ -79,7 +82,7 @@ void _setSockErrNo(int errnum) {
  * @return The error string assocated to the provided error number.
  */
 const char *WXSocket_GetErrorStr(int serrno) {
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
     static struct wErrData {
         int serrno;
         char *errorDesc;
@@ -200,7 +203,7 @@ static int _addrinfo(char *host, char *service, struct addrinfo *hints,
 
     /* Also verify base address compatibility */
     if (((*res)->ai_family != AF_INET) && ((*res)->ai_family != AF_INET6)) {
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
         WSASetLastError(WSAESOCKTNOSUPPORT);
 #else
 #ifdef ESOCKTNOSUPPORT
@@ -250,9 +253,9 @@ int WXSocket_ValidateHostIpAddr(char *hostIpAddr) {
  *                  returned (if applicable, depending on error conditions).
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSocket_AllocateSocket(void *addrInfo, wxsocket_t *socketRef) {
+int WXSocket_AllocateSocket(void *addrInfo, WXSocket *socketRef) {
     struct addrinfo *addressInfo = (struct addrinfo *) addrInfo;
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
     SOCKET socketHandle;
 #else
     int32_t socketHandle;
@@ -261,7 +264,7 @@ int WXSocket_AllocateSocket(void *addrInfo, wxsocket_t *socketRef) {
     /* Create the socket instance */
     socketHandle = socket(addressInfo->ai_family, addressInfo->ai_socktype,
                           addressInfo->ai_protocol);
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
     if (socketHandle == INVALID_SOCKET) {
 #else
     if (socketHandle < 0) {
@@ -290,23 +293,23 @@ int WXSocket_AllocateSocket(void *addrInfo, wxsocket_t *socketRef) {
  *                   (a negative result indicates a connection timeout).
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSocket_OpenTCPClientByAddr(void *addrInfo, wxsocket_t *socketRef,
+int WXSocket_OpenTCPClientByAddr(void *addrInfo, WXSocket *socketRef,
                                  int32_t *timeoutRef) {
     struct addrinfo *addressInfo = (struct addrinfo *) addrInfo;
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
     SOCKET socketHandle;
     int optLen;
 #else
     int32_t socketHandle;
     socklen_t optLen;
 #endif
-    int64_t startTime = _wxmillitime();
+    int64_t startTime = WXSocket_MilliTime();
     int rc, errnum;
 
     /* Create the socket instance */
     rc = WXSocket_AllocateSocket(addrInfo, socketRef);
     if (rc != WXNRC_OK) return rc;
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
     socketHandle = (SOCKET) *socketRef;
 #else
     socketHandle = (int32_t) *socketRef;
@@ -317,17 +320,17 @@ int WXSocket_OpenTCPClientByAddr(void *addrInfo, wxsocket_t *socketRef,
         if (connect(socketHandle, addressInfo->ai_addr,
                     addressInfo->ai_addrlen) < 0) {
             errnum = sockErrNo;
-            WXSocket_Close((wxsocket_t) socketHandle);
+            WXSocket_Close((WXSocket) socketHandle);
             if (socketRef != NULL) *socketRef = INVALID_SOCKET_FD;
             _setSockErrNo(errnum);
             return WXNRC_SYS_ERROR;
         }
     } else {
         /* Force non-blocking connect to detect timeout */
-        rc = WXSocket_SetNonBlockingState((wxsocket_t) socketHandle, TRUE);
+        rc = WXSocket_SetNonBlockingState((WXSocket) socketHandle, TRUE);
         if (rc) {
             errnum = sockErrNo;
-            WXSocket_Close((wxsocket_t) socketHandle);
+            WXSocket_Close((WXSocket) socketHandle);
             if (socketRef != NULL) *socketRef = INVALID_SOCKET_FD;
             _setSockErrNo(errnum);
             return rc;
@@ -336,14 +339,14 @@ int WXSocket_OpenTCPClientByAddr(void *addrInfo, wxsocket_t *socketRef,
         /* Attempt connection, will most likely need wait */
         if (connect(socketHandle, addressInfo->ai_addr,
                     addressInfo->ai_addrlen) < 0) {
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
             if (sockErrNo != WSAEWOULDBLOCK) {
 #else
             if (sockErrNo != EINPROGRESS) {
 #endif
                 /* Ooops, this is a real error condition */
                 errnum = sockErrNo;
-                WXSocket_Close((wxsocket_t) socketHandle);
+                WXSocket_Close((WXSocket) socketHandle);
                 if (socketRef != NULL) *socketRef = INVALID_SOCKET_FD;
                 _setSockErrNo(errnum);
                 return WXNRC_SYS_ERROR;
@@ -351,17 +354,17 @@ int WXSocket_OpenTCPClientByAddr(void *addrInfo, wxsocket_t *socketRef,
         }
 
         /* Wait for activity */
-        *timeoutRef -= _wxmillitime() - startTime;
-        rc = WXSocket_Wait((wxsocket_t) socketHandle, WXNRC_WRITE_REQUIRED,
+        *timeoutRef -= WXSocket_MilliTime() - startTime;
+        rc = WXSocket_Wait((WXSocket) socketHandle, WXNRC_WRITE_REQUIRED,
                            timeoutRef);
         if (rc < 0) {
             errnum = sockErrNo;
-            WXSocket_Close((wxsocket_t) socketHandle);
+            WXSocket_Close((WXSocket) socketHandle);
             if (socketRef != NULL) *socketRef = INVALID_SOCKET_FD;
             _setSockErrNo(errnum);
             return rc;
         }
-        startTime = _wxmillitime();
+        startTime = WXSocket_MilliTime();
 
         /* Cannot explicitly trust return from the wait states on connect */
         optLen = sizeof(errnum);
@@ -369,23 +372,23 @@ int WXSocket_OpenTCPClientByAddr(void *addrInfo, wxsocket_t *socketRef,
                        (uint8_t *) &errnum, &optLen) < 0) {
             /* This is unexpected */
             errnum = sockErrNo;
-            WXSocket_Close((wxsocket_t) socketHandle);
+            WXSocket_Close((WXSocket) socketHandle);
             if (socketRef != NULL) *socketRef = INVALID_SOCKET_FD;
             _setSockErrNo(errnum);
             return WXNRC_SYS_ERROR;
         }
         if (errnum != 0) {
-            WXSocket_Close((wxsocket_t) socketHandle);
+            WXSocket_Close((WXSocket) socketHandle);
             if (socketRef != NULL) *socketRef = INVALID_SOCKET_FD;
             _setSockErrNo(errnum);
             return WXNRC_SYS_ERROR;
         }
 
         /* We now return you to your regular programming */
-        rc = WXSocket_SetNonBlockingState((wxsocket_t) socketHandle, FALSE);
+        rc = WXSocket_SetNonBlockingState((WXSocket) socketHandle, FALSE);
         if (rc) {
             errnum = sockErrNo;
-            WXSocket_Close((wxsocket_t) socketHandle);
+            WXSocket_Close((WXSocket) socketHandle);
             if (socketRef != NULL) *socketRef = INVALID_SOCKET_FD;
             _setSockErrNo(errnum);
             return rc;
@@ -393,8 +396,8 @@ int WXSocket_OpenTCPClientByAddr(void *addrInfo, wxsocket_t *socketRef,
     }
 
     /* Either we've gotten a connection or are still waiting... */
-    if (timeoutRef != NULL) *timeoutRef -= _wxmillitime() - startTime;
-    if (socketRef != NULL) *socketRef = (wxsocket_t) socketHandle;
+    if (timeoutRef != NULL) *timeoutRef -= WXSocket_MilliTime() - startTime;
+    if (socketRef != NULL) *socketRef = (WXSocket) socketHandle;
 
     return WXNRC_OK;
 }
@@ -416,9 +419,9 @@ int WXSocket_OpenTCPClientByAddr(void *addrInfo, wxsocket_t *socketRef,
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
 int WXSocket_OpenTCPClient(char *hostIpAddr, char *service,
-                           wxsocket_t *socketRef, int32_t *timeoutRef) {
+                           WXSocket *socketRef, int32_t *timeoutRef) {
     struct addrinfo hints, *addrInfo = NULL;
-    wxsocket_t socketHandle;
+    WXSocket socketHandle;
     int rc;
 
     /* Retrieve target address information */
@@ -448,9 +451,9 @@ int WXSocket_OpenTCPClient(char *hostIpAddr, char *service,
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
 int WXSocket_OpenUDPClient(char *hostIpAddr, char *service,
-                           wxsocket_t *socketRef, void **addrInfoRef) {
+                           WXSocket *socketRef, void **addrInfoRef) {
     struct addrinfo hints, *addrInfo = NULL;
-    wxsocket_t socketHandle;
+    WXSocket socketHandle;
     int rc;
 
     /* Retrieve target address information */
@@ -475,6 +478,247 @@ int WXSocket_OpenUDPClient(char *hostIpAddr, char *service,
     return WXNRC_OK;
 }
 
+/* Common method for the binding sequence for the following methods */
+static int WXSocket_BindServer(struct addrinfo *addrInfo, uint32_t *portRef,
+                               WXSocket *socketRef) {
+#ifdef _WXWIN_BUILD
+    SOCKET socketHandle;
+    int optLen, localAddrLen;
+#else
+    int32_t socketHandle;
+    socklen_t optLen, localAddrLen;
+#endif
+    struct sockaddr_in localAddr;
+    int optVal, rc, errnum;
+
+    /* Create the socket instance */
+    rc = WXSocket_AllocateSocket(addrInfo, socketRef);
+    if (rc != WXNRC_OK) return rc;
+#ifdef _WXWIN_BUILD
+    socketHandle = (SOCKET) *socketRef;
+#else
+    socketHandle = (int32_t) *socketRef;
+#endif
+
+    /* Indicate socket reusability (rebind assistance) */
+    optVal = 1;
+    if (setsockopt(socketHandle, SOL_SOCKET, SO_REUSEADDR,
+                   (const char *) &optVal, sizeof(optVal)) < 0) {
+        errnum = sockErrNo;
+        WXSocket_Close((WXSocket) socketHandle);
+        *socketRef = INVALID_SOCKET_FD;
+        _setSockErrNo(errnum);
+        return WXNRC_SYS_ERROR;
+    }
+
+    /* Bind to the target instance */
+    if (bind(socketHandle, addrInfo->ai_addr, addrInfo->ai_addrlen) < 0) {
+        errnum = sockErrNo;
+        WXSocket_Close((WXSocket) socketHandle);
+        *socketRef = INVALID_SOCKET_FD;
+        _setSockErrNo(errnum);
+        return WXNRC_SYS_ERROR;
+    }
+
+    /* Automatically set listen queue for TCP instances */
+    if ((addrInfo->ai_family == AF_INET) || (addrInfo->ai_family == AF_INET6)) {
+        if (listen(socketHandle, SOMAXCONN) < 0) {
+            errnum = sockErrNo;
+            WXSocket_Close((WXSocket) socketHandle);
+            *socketRef = INVALID_SOCKET_FD;
+            _setSockErrNo(errnum);
+            return WXNRC_SYS_ERROR;
+        }
+    }
+
+    /* Retrieve the ephemeral port number, where applicable */
+    if (portRef != NULL) {
+        localAddrLen = sizeof(struct sockaddr_in);
+        if (getsockname(socketHandle, (struct sockaddr *) &localAddr,
+                        &localAddrLen) < 0) {
+            errnum = sockErrNo;
+            WXSocket_Close((WXSocket) socketHandle);
+            *socketRef = INVALID_SOCKET_FD;
+            _setSockErrNo(errnum);
+            return WXNRC_SYS_ERROR;
+        }
+        *portRef = ntohs(localAddr.sin_port);
+    }
+
+    return WXNRC_OK;
+}
+
+/**
+ * Allocate and bind a TCP server socket on the indicated address/port
+ * instance.
+ *
+ * @param hostIpAddr Hostname or IP address of the target network to bind
+ *                   to.  If NULL, binds to all networks (INADDR_ANY).
+ * @param service Either the service name or the port number to bind to.
+ * @param socketRef Pointer through which the created socket instance is
+ *                  returned (if applicable, depending on error conditions).
+ * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
+ */
+int WXSocket_OpenTCPServer(char *hostIpAddr, char *service,
+                           WXSocket *socketRef) {
+    struct addrinfo hints, *addrInfo = NULL;
+    WXSocket socketHandle;
+    int rc;
+
+    /* Retrieve target address information */
+    (void) memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = AF_UNSPEC;
+    rc = _addrinfo(hostIpAddr, service, &hints, &addrInfo);
+    if (rc != WXNRC_OK) return rc;
+
+    /* And open/bind the socket instance */
+    rc = WXSocket_BindServer(addrInfo, NULL, &socketHandle);
+    freeaddrinfo(addrInfo);
+    if (socketRef != NULL) *socketRef = socketHandle;
+    return rc;
+}
+
+/**
+ * Allocate and bind an ephemeral (indeterminant port) TCP server socket on
+ * the indicated address.
+ *
+ * @param hostIpAddr Hostname or IP address of the target network to bind
+ *                   to.  If NULL, binds to all netowkrs (INADDR_ANY).
+ * @param portRef Pointer through which ephemeral port number is returned.
+ * @param socketRef Pointer through which the created socket instance is
+ *                  returned (if applicable, depending on error conditions).
+ * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
+ */
+int WXSocket_OpenEphemeralServer(char *hostIpAddr, uint32_t *portRef,
+                                 WXSocket *socketRef) {
+    struct addrinfo hints, *addrInfo = NULL;
+    WXSocket socketHandle;
+    uint32_t ephemPort;
+    int rc;
+
+    /* Retrieve target address information */
+    (void) memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = AF_UNSPEC;
+    rc = _addrinfo(hostIpAddr, "0", &hints, &addrInfo);
+    if (rc != WXNRC_OK) return rc;
+
+    /* And open/bind the socket instance */
+    rc = WXSocket_BindServer(addrInfo, &ephemPort, &socketHandle);
+    freeaddrinfo(addrInfo);
+    if (portRef != NULL) *portRef = ephemPort;
+    if (socketRef != NULL) *socketRef = socketHandle;
+    return rc;
+}
+
+/**
+ * Allocate and bind a UDP server socket on the indicated address/port
+ * instance.
+ *
+ * @param hostIpAddr Hostname or IP address of the target network to bind
+ *                   to.  If NULL, binds to all netowkrs (INADDR_ANY).
+ * @param service Either the service name or the port number to bind to.
+ * @param socketRef Pointer through which the created socket instance is
+ *                  returned (if applicable, depending on error conditions).
+ * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
+ */
+int WXSocket_OpenUDPServer(char *hostIpAddr, char *service,
+                           WXSocket *socketRef) {
+    struct addrinfo hints, *addrInfo = NULL;
+    WXSocket socketHandle;
+    int rc;
+
+    /* Retrieve target address information */
+    (void) memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_family = AF_UNSPEC;
+    rc = _addrinfo(hostIpAddr, service, &hints, &addrInfo);
+    if (rc != WXNRC_OK) return rc;
+
+    /* And open/bind the socket instance */
+    rc = WXSocket_BindServer(addrInfo, NULL, &socketHandle);
+    freeaddrinfo(addrInfo);
+    if (socketRef != NULL) *socketRef = socketHandle;
+    return rc;
+}
+
+/**
+ * Wrapper around the server socket accept() call that includes support for
+ * determination of the originating client IP address.  This method should 
+ * only be called where a read indication from the bound socket exists for 
+ * the queued connection instances.
+ *
+ * @param serverSocket The bound server socket to accept the connection from.
+ * @param socketRef Pointer through which the accepted socket is returned,
+ *                  where successful.
+ * @param origin If non-NULL, a buffer to store the originating address
+ *               information into.
+ * @param originLen The length of the previous buffer, where appropriate.
+ * @return WXNRC_OK if accept was successful, suitable WXNRC_* error code on
+ *         failure.  Will return TIMEOUT for a non-blocking socket that no
+ *         longer has a queue.
+ */
+int WXSocket_Accept(WXSocket serverSocket, WXSocket *socketRef,
+                    char *origin, uint32_t originLen) {
+#ifdef _WXWIN_BUILD
+    SOCKET socketHandle;
+    int srcAddrLen;
+#else
+    int32_t socketHandle;
+    socklen_t srcAddrLen;
+#endif
+    struct sockaddr_storage srcAddrInfo;
+    struct sockaddr_in6 *srcAddrIN6;
+    struct sockaddr_in srcAddrIN4;
+    int errnum;
+    
+    /* Perform the accept operation */
+    srcAddrLen = sizeof(srcAddrInfo);
+    socketHandle = accept(serverSocket, (struct sockaddr *) &srcAddrInfo,
+                          &srcAddrLen);
+#ifdef _WXWIN_BUILD
+    if (socketHandle == INVALID_SOCKET) {
+        errnum = sockErrNo;
+        if (errnum != WSAEWOULDBLOCK) {
+#else
+    if (socketHandle < 0) {
+        errnum = sockErrNo;
+        if (errnum != EAGAIN) {
+#endif
+            return WXNRC_TIMEOUT;
+        }
+        return WXNRC_SYS_ERROR;
+    }
+
+    /* Obtain source address if so desired */
+    if (origin != NULL) {
+        /* Remap IPv6 encoded IPv4 addresses for nicer display */
+        srcAddrIN6 = (struct sockaddr_in6 *) &srcAddrInfo;
+        if (IN6_IS_ADDR_V4MAPPED(&srcAddrIN6->sin6_addr)) {
+            (void) memset(&srcAddrIN4, 0, sizeof(srcAddrIN4));
+            srcAddrIN4.sin_family = AF_INET;
+            srcAddrIN4.sin_port = srcAddrIN6->sin6_port;
+            (void) memcpy(&srcAddrIN4.sin_addr.s_addr,
+                          srcAddrIN6->sin6_addr.s6_addr + 12, 4);
+            (void) memcpy(&srcAddrInfo, &srcAddrIN4, sizeof(srcAddrIN4));
+            srcAddrLen = sizeof(srcAddrIN4);
+        }
+
+        /* And translate */
+        if (getnameinfo((struct sockaddr *) &srcAddrInfo, srcAddrLen,
+                        origin, originLen, 0, 0, NI_NUMERICHOST) != 0) {
+            (void) strcpy(origin, "Unknown");
+        }
+    }
+
+    if (socketRef != NULL) *socketRef = socketHandle;
+    return WXNRC_OK;
+}
+
 /**
  * Method to wait for read/write availability on the given socket handle.
  * Uses select/poll as required, not event dispatching like the server engine.
@@ -492,19 +736,19 @@ int WXSocket_OpenUDPClient(char *hostIpAddr, char *service,
  *         (depending on input) if the wait condition is valid, a WXNRC_* error
  *         code otherwise.
  */
-int WXSocket_Wait(wxsocket_t socketHandle, int condition, int32_t *timeoutRef) {
-#ifdef WIN32
+int WXSocket_Wait(WXSocket socketHandle, int condition, int32_t *timeoutRef) {
+#ifdef _WXWIN_BUILD
     fd_set readSet, writeSet, excSet;
     struct timeval tv;
 #else
     struct pollfd connPollFds[1];
 #endif
-    int64_t delay, startTime = _wxmillitime();
+    int64_t delay, startTime = WXSocket_MilliTime();
     int rc, result = WXNRC_OK;
 
     /* Perform select/polling operations to wait for outcome */
     rc = -1;
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
     while (rc < 0) {
         FD_ZERO(&readSet);
         FD_ZERO(&writeSet);
@@ -517,7 +761,7 @@ int WXSocket_Wait(wxsocket_t socketHandle, int condition, int32_t *timeoutRef) {
             rc = select(socketHandle + 1, &readSet, &writeSet,
                         &excSet, NULL);
         } else {
-            delay = *timeoutRef - (_wxmillitime() - startTime);
+            delay = *timeoutRef - (WXSocket_MilliTime() - startTime);
             if (delay > 0) {
                 tv.tv_sec = delay / 1000;
                 tv.tv_usec = (delay % 1000) * 1000;
@@ -542,7 +786,7 @@ int WXSocket_Wait(wxsocket_t socketHandle, int condition, int32_t *timeoutRef) {
         if (timeoutRef == NULL) {
             rc = poll(connPollFds, 1, -1);
         } else {
-            delay = *timeoutRef - (_wxmillitime() - startTime);
+            delay = *timeoutRef - (WXSocket_MilliTime() - startTime);
             if (delay > 0) {
                 rc = poll(connPollFds, 1, delay);
             } else {
@@ -567,19 +811,19 @@ int WXSocket_Wait(wxsocket_t socketHandle, int condition, int32_t *timeoutRef) {
         }
 
         if ((timeoutRef != NULL) && (rc == 0)) {
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
             WSASetLastError(WSAETIMEDOUT);
 #else
             errno = ETIMEDOUT;
 #endif
-            *timeoutRef -= _wxmillitime() - startTime;
+            *timeoutRef -= WXSocket_MilliTime() - startTime;
             if (*timeoutRef >= 0) *timeoutRef = -1;
             return WXNRC_TIMEOUT;
         }
     }
 
     /* Record the final time remaining */
-    if (timeoutRef != NULL) *timeoutRef -= _wxmillitime() - startTime;
+    if (timeoutRef != NULL) *timeoutRef -= WXSocket_MilliTime() - startTime;
 
     return result;
 }
@@ -594,8 +838,8 @@ int WXSocket_Wait(wxsocket_t socketHandle, int condition, int32_t *timeoutRef) {
  * @return WXNRC_OK if successful, WXNRC_SYS_ERROR on failure (check system
  *         error number for more information).
  */
-int WXSocket_SetNonBlockingState(wxsocket_t socketHandle, int isNonBlocking) {
-#ifdef WIN32
+int WXSocket_SetNonBlockingState(WXSocket socketHandle, int isNonBlocking) {
+#ifdef _WXWIN_BUILD
     ULONG nonBlock = (isNonBlocking) ? 1 : 0;
 
     if (ioctlsocket((SOCKET) socketHandle, FIONBIO, &nonBlock) != 0) {
@@ -630,7 +874,7 @@ int WXSocket_SetNonBlockingState(wxsocket_t socketHandle, int isNonBlocking) {
 
 /* All of the following methods have a common set of error codes */
 static ssize_t txlateError(ssize_t errorCode) {
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
     if (errorCode == WSAEWOULDBLOCK) return 0;
     if (errorCode == WSAETIMEDOUT) return WXNRC_TIMEOUT;
     if (errorCode == WSAECONNRESET) return WXNRC_DISCONNECT;
@@ -668,13 +912,13 @@ static ssize_t txlateError(ssize_t errorCode) {
  *         codes.  Zero indicates a non-blocking wait condition with no
  *         bytes read.
  */
-ssize_t WXSocket_Recv(wxsocket_t socketHandle, void *buf, size_t len,
+ssize_t WXSocket_Recv(WXSocket socketHandle, void *buf, size_t len,
                       int flags) {
     int errorCode;
     ssize_t rc;
 
     do {
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
         rc = recv((SOCKET) socketHandle, buf, len, flags);
 #else
         rc = recv((int) socketHandle, buf, len, flags);
@@ -699,14 +943,14 @@ ssize_t WXSocket_Recv(wxsocket_t socketHandle, void *buf, size_t len,
  *         codes.  Zero indicates a non-blocking wait condition with no
  *         bytes read.
  */
-ssize_t WXSocket_RecvFrom(wxsocket_t socketHandle, void *buf, size_t len,
+ssize_t WXSocket_RecvFrom(WXSocket socketHandle, void *buf, size_t len,
                           int flags, void *srcAddr, socklen_t *addrLen) {
     struct sockaddr *addr = (struct sockaddr *) srcAddr;
     int errorCode;
     ssize_t rc;
 
     do {
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
         rc = recvfrom((SOCKET) socketHandle, buf, len, flags, addr, addrLen);
 #else
         rc = recvfrom((int) socketHandle, buf, len, flags, addr, addrLen);
@@ -731,13 +975,13 @@ ssize_t WXSocket_RecvFrom(wxsocket_t socketHandle, void *buf, size_t len,
  *         codes.  Zero indicates a non-blocking wait condition with no
  *         bytes written.
  */
-ssize_t WXSocket_Send(wxsocket_t socketHandle, const void *buf, size_t len,
+ssize_t WXSocket_Send(WXSocket socketHandle, const void *buf, size_t len,
                       int flags) {
     int errorCode;
     ssize_t rc;
 
     do {
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
         rc = send((SOCKET) socketHandle, buf, len, flags);
 #else
         rc = send((int) socketHandle, buf, len, flags);
@@ -762,14 +1006,14 @@ ssize_t WXSocket_Send(wxsocket_t socketHandle, const void *buf, size_t len,
  *         codes.  Zero indicates a non-blocking wait condition with no
  *         bytes written.
  */
-ssize_t WXSocket_SendTo(wxsocket_t socketHandle, void *buf, size_t len,
+ssize_t WXSocket_SendTo(WXSocket socketHandle, void *buf, size_t len,
                         int flags, void *destAddr, socklen_t addrLen) {
     struct sockaddr *addr = (struct sockaddr *) destAddr;
     int errorCode;
     ssize_t rc;
 
     do {
-#ifdef WIN32
+#ifdef _WXWIN_BUILD
         rc = sendto((SOCKET) socketHandle, buf, len, flags, addr, addrLen);
 #else
         rc = sendto((int) socketHandle, buf, len, flags, addr, addrLen);
@@ -785,8 +1029,8 @@ ssize_t WXSocket_SendTo(wxsocket_t socketHandle, void *buf, size_t len,
  *
  * @param socketHandle The handle of the socket to close.
  */
-void WXSocket_Close(wxsocket_t socketHandle) {
-#ifdef WIN32
+void WXSocket_Close(WXSocket socketHandle) {
+#ifdef _WXWIN_BUILD
     (void) closesocket((SOCKET) socketHandle);
 #else
     (void) close((int) socketHandle);

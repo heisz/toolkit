@@ -29,13 +29,18 @@
 /*
  * Integration type definition to hold a socket descriptor across platforms
  * (contains a standard Unix file descriptor or a windows socket handle).
- * Defined as a standard data type as the functional wrappings use the
- * "object oriented" WXSocket_ notation.
  */
-typedef uint32_t wxsocket_t;
+typedef uint32_t WXSocket;
 
 /* Special socket number (equivalent to INVALID_SOCKET) for "unused/error" */
-#define INVALID_SOCKET_FD ((wxsocket_t) 0xFFFFFFFF)
+#define INVALID_SOCKET_FD ((WXSocket) 0xFFFFFFFF)
+
+/**
+ * Used in various points in the networking code, globalize it.  Returns
+ * a consistent millisecond timing amount (not necessarily epoch time) for
+ * handling timeout determination.
+ */
+int64_t WXSocket_MilliTime();
 
 /**
  * Wrapping method to access the system error number as set by the last network
@@ -75,7 +80,7 @@ int WXSocket_ValidateHostIpAddr(char *hostIpAddr);
  *                  returned (if applicable, depending on error conditions).
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSocket_AllocateSocket(void *addrInfo, wxsocket_t *socketRef);
+int WXSocket_AllocateSocket(void *addrInfo, WXSocket *socketRef);
 
 /**
  * General method to open a TCP client socket to the specified address target,
@@ -93,7 +98,7 @@ int WXSocket_AllocateSocket(void *addrInfo, wxsocket_t *socketRef);
  *                   (a negative result indicates a connection timeout).
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSocket_OpenTCPClientByAddr(void *addrInfo, wxsocket_t *socketRef,
+int WXSocket_OpenTCPClientByAddr(void *addrInfo, WXSocket *socketRef,
                                  int32_t *timeoutRef);
 
 /**
@@ -113,7 +118,7 @@ int WXSocket_OpenTCPClientByAddr(void *addrInfo, wxsocket_t *socketRef,
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
 int WXSocket_OpenTCPClient(char *hostIpAddr, char *service,
-                           wxsocket_t *socketRef, int32_t *timeoutRef);
+                           WXSocket *socketRef, int32_t *timeoutRef);
 
 /**
  * Allocate a UDP socket instance with target address resolution.
@@ -128,7 +133,68 @@ int WXSocket_OpenTCPClient(char *hostIpAddr, char *service,
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
 int WXSocket_OpenUDPClient(char *hostIpAddr, char *service,
-                           wxsocket_t *socketRef, void **addrInfoRef);
+                           WXSocket *socketRef, void **addrInfoRef);
+
+/**
+ * Allocate and bind a TCP server socket on the indicated address/port
+ * instance.
+ *
+ * @param hostIpAddr Hostname or IP address of the target network to bind
+ *                   to.  If NULL, binds to all networks (INADDR_ANY).
+ * @param service Either the service name or the port number to bind to.
+ * @param socketRef Pointer through which the created socket instance is
+ *                  returned (if applicable, depending on error conditions).
+ * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
+ */
+int WXSocket_OpenTCPServer(char *hostIpAddr, char *service,
+                           WXSocket *socketRef);
+
+/**
+ * Allocate and bind an ephemeral (indeterminant port) TCP server socket on
+ * the indicated address.
+ *
+ * @param hostIpAddr Hostname or IP address of the target network to bind
+ *                   to.  If NULL, binds to all netowkrs (INADDR_ANY).
+ * @param portRef Pointer through which ephemeral port number is returned.
+ * @param socketRef Pointer through which the created socket instance is
+ *                  returned (if applicable, depending on error conditions).
+ * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
+ */
+int WXSocket_OpenEphemeralServer(char *hostIpAddr, uint32_t *portRef,
+                                 WXSocket *socketRef);
+
+/**
+ * Allocate and bind a UDP server socket on the indicated address/port
+ * instance.
+ *
+ * @param hostIpAddr Hostname or IP address of the target network to bind
+ *                   to.  If NULL, binds to all netowkrs (INADDR_ANY).
+ * @param service Either the service name or the port number to bind to.
+ * @param socketRef Pointer through which the created socket instance is
+ *                  returned (if applicable, depending on error conditions).
+ * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
+ */
+int WXSocket_OpenUDPServer(char *hostIpAddr, char *service,
+                           WXSocket *socketRef);
+
+/**
+ * Wrapper around the server socket accept() call that includes support for
+ * determination of the originating client IP address.  This method should
+ * only be called where a read indication from the bound socket exists for
+ * the queued connection instances.
+ *
+ * @param serverSocket The bound server socket to accept the connection from.
+ * @param socketRef Pointer through which the accepted socket is returned,
+ *                  where successful.
+ * @param origin If non-NULL, a buffer to store the originating address
+ *               information into.
+ * @param originLen The length of the previous buffer, where appropriate.
+ * @return WXNRC_OK if accept was successful, suitable WXNRC_* error code on
+ *         failure.  Will return TIMEOUT for a non-blocking socket that no
+ *         longer has a queue.
+ */
+int WXSocket_Accept(WXSocket serverSocket, WXSocket *socketRef,
+                    char *origin, uint32_t originLen);
 
 /**
  * Method to wait for read/write availability on the given socket handle.
@@ -146,7 +212,7 @@ int WXSocket_OpenUDPClient(char *hostIpAddr, char *service,
  * @return A mixture of WXNRC_READ_REQUIRED and/or WXNRC_WRITE_REQUIRED
  *         (depending on input) if the wait condition is valid, a WXNRC_* error  *         code otherwise.
  */
-int WXSocket_Wait(wxsocket_t socketHandle, int condition, int32_t *timeoutRef);
+int WXSocket_Wait(WXSocket socketHandle, int condition, int32_t *timeoutRef);
 
 /**
  * Wrapping method to read from a TCP socket instance (wrapper around recv()).
@@ -162,7 +228,7 @@ int WXSocket_Wait(wxsocket_t socketHandle, int condition, int32_t *timeoutRef);
  *         codes.  Zero indicates a non-blocking wait condition with no
  *         bytes read.
  */
-ssize_t WXSocket_Recv(wxsocket_t socketHandle, void *buf, size_t len,
+ssize_t WXSocket_Recv(WXSocket socketHandle, void *buf, size_t len,
                       int flags);
 
 /**
@@ -179,7 +245,7 @@ ssize_t WXSocket_Recv(wxsocket_t socketHandle, void *buf, size_t len,
  *         codes.  Zero indicates a non-blocking wait condition with no
  *         bytes read.
  */
-ssize_t WXSocket_RecvFrom(wxsocket_t socketHandle, void *buf, size_t len,
+ssize_t WXSocket_RecvFrom(WXSocket socketHandle, void *buf, size_t len,
                           int flags, void *srcAddr, socklen_t *addrLen);
 
 /**
@@ -196,7 +262,7 @@ ssize_t WXSocket_RecvFrom(wxsocket_t socketHandle, void *buf, size_t len,
  *         codes.  Zero indicates a non-blocking wait condition with no
  *         bytes written.
  */
-ssize_t WXSocket_Send(wxsocket_t socketHandle, const void *buf, size_t len,
+ssize_t WXSocket_Send(WXSocket socketHandle, const void *buf, size_t len,
                       int flags);
 
 /**
@@ -213,7 +279,7 @@ ssize_t WXSocket_Send(wxsocket_t socketHandle, const void *buf, size_t len,
  *         codes.  Zero indicates a non-blocking wait condition with no
  *         bytes written.
  */
-ssize_t WXSocket_SendTo(wxsocket_t socketHandle, void *buf, size_t len,
+ssize_t WXSocket_SendTo(WXSocket socketHandle, void *buf, size_t len,
                         int flags, void *destAddr, socklen_t addrLen);
 
 /**
@@ -226,13 +292,13 @@ ssize_t WXSocket_SendTo(wxsocket_t socketHandle, void *buf, size_t len,
  * @return WXNRC_OK if successful, WXNRC_SYS_ERROR on failure (check system
  *         error number for more information).
  */
-int WXSocket_SetNonBlockingState(wxsocket_t socketHandle, int setNonBlocking);
+int WXSocket_SetNonBlockingState(WXSocket socketHandle, int setNonBlocking);
 
 /**
  * General method to close the provided socket instance.
  *
  * @param socketHandle The handle of the socket to close.
  */
-void WXSocket_Close(wxsocket_t socketHandle);
+void WXSocket_Close(WXSocket socketHandle);
 
 #endif
