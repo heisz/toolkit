@@ -56,7 +56,7 @@ int64_t WXSocket_MilliTime() {
  *
  * @return The last error number for any network actions (thread-safe).
  */
-int WXSocket_GetSystemErrNo() {
+int WXSocket_GetLastErrNo() {
     return sockErrNo;
 }
 
@@ -226,7 +226,7 @@ static int _addrinfo(char *host, char *service, struct addrinfo *hints,
  *
  * @param hostIpAddr Hostname or IP address to validate.
  * @return WXNRC_OK if the hostname is valid, WXNRC_DATA_ERROR otherwise.  Use
- *         WXSocket_GetSystemErrNo to retrieve the failure condition.
+ *         WXSocket_GetLastErrNo to retrieve the failure condition.
  */
 int WXSocket_ValidateHostIpAddr(char *hostIpAddr) {
     struct addrinfo hints, *hostInfo;
@@ -678,16 +678,17 @@ int WXSocket_Accept(WXSocket serverSocket, WXSocket *socketRef,
     
     /* Perform the accept operation */
     srcAddrLen = sizeof(srcAddrInfo);
+    (void) memset(&srcAddrInfo, 0, srcAddrLen);
     socketHandle = accept(serverSocket, (struct sockaddr *) &srcAddrInfo,
                           &srcAddrLen);
 #ifdef _WXWIN_BUILD
     if (socketHandle == INVALID_SOCKET) {
         errnum = sockErrNo;
-        if (errnum != WSAEWOULDBLOCK) {
+        if (errnum == WSAEWOULDBLOCK) {
 #else
     if (socketHandle < 0) {
         errnum = sockErrNo;
-        if (errnum != EAGAIN) {
+        if (errnum == EAGAIN) {
 #endif
             return WXNRC_TIMEOUT;
         }
@@ -926,6 +927,7 @@ ssize_t WXSocket_Recv(WXSocket socketHandle, void *buf, size_t len,
         errorCode = sockErrNo;
     } while ((rc < 0) && (errorCode == EINTR));
 
+    if (rc == 0) return WXNRC_DISCONNECT;
     return (rc >= 0) ? rc : txlateError(errorCode);
 }
 
@@ -958,6 +960,7 @@ ssize_t WXSocket_RecvFrom(WXSocket socketHandle, void *buf, size_t len,
         errorCode = sockErrNo;
     } while ((rc < 0) && (errorCode == EINTR));
 
+    /* Here, UDP allows zero length datagrams (not indended for TCP) */
     return (rc >= 0) ? rc : txlateError(errorCode);
 }
 

@@ -49,7 +49,7 @@ int64_t WXSocket_MilliTime();
  *
  * @return The last error number for any network actions (thread-safe).
  */
-int WXSocket_GetSystemErrNo();
+int WXSocket_GetLastErrNo();
 
 /**
  * Obtain the error message/string associated to the provided system error
@@ -67,7 +67,7 @@ const char *WXSocket_GetErrorStr(int serrno);
  *
  * @param hostIpAddr Hostname or IP address to validate.
  * @return WXNRC_OK if the hostname is valid, WXNRC_DATA_ERROR otherwise.  Use
- *         WXSocket_GetSystemErrNo to retrieve the failure condition.
+ *         WXSocket_GetLastErrNo to retrieve the failure condition.
  */
 int WXSocket_ValidateHostIpAddr(char *hostIpAddr);
 
