@@ -72,6 +72,8 @@ AC_CHECK_HEADERS([netinet/in.h])
 AC_CHECK_HEADERS([endian.h])
 AC_CHECK_HEADERS([sys/endian.h])
 AC_CHECK_HEADERS([byteswap.h])
+AC_CHECK_HEADERS([poll.h])
+AC_CHECK_HEADERS([sys/epoll.h])
 
 ####### All Done - Generate Configuration Specific Files #######
 
