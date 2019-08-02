@@ -305,18 +305,18 @@ int WXEvent_UnregisterEvent(WXEvent_Registry *registry, uint32_t socketHandle) {
 #ifdef WXEVENT_USE_EPOLL
     /* Note, should be NULL but kernel < 2.6.9 has a bug... */
     (void) memset(&evt, 0, sizeof(evt));
-    if (epoll_ctl(registry->epollFd, EPOLL_CTL_MOD,
+    if (epoll_ctl(registry->epollFd, EPOLL_CTL_DEL,
                   (int) entry->socketHandle, &evt) < 0) {
         return WXNRC_SYS_ERROR;
     }
 #endif
 
     /* Slice out the entry */
-    if ((entryIdx = entry - registry->entries) >= registry->entryCount) {
-        (void) memmove(entry + 1, entry,
+    if ((entryIdx = entry - registry->entries) < registry->entryCount - 1) {
+        (void) memmove(entry, entry + 1,
                        (registry->entryCount - entryIdx - 1) * evtStructSize);
 #ifdef WXEVENT_USE_POLL
-        (void) memmove(registry->fds + entryIdx + 1, registry->fds + entryIdx,
+        (void) memmove(registry->fds + entryIdx, registry->fds + entryIdx + 1,
                        (registry->entryCount - entryIdx - 1) *
                                                    sizeof(struct pollfd));
 #endif
