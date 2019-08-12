@@ -7,7 +7,7 @@
 #
 
 # Just a bunch of test programs
-bin_PROGRAMS = array buffer hash json thread
+bin_PROGRAMS = array buffer db hash json thread
 
 # Lots of test cases
 array_SOURCES = array.c
@@ -43,8 +43,20 @@ thread_LDADD = $(top_builddir)/src/utility/thread.lo \
                -ldl -lm
 thread_LDFLAGS = -lpthread -static
 
+db_SOURCES = db.c
+db_LDADD = $(top_builddir)/src/db/dbxf.lo \
+           $(top_builddir)/src/utility/thread.lo \
+           $(top_builddir)/src/utility/buffer.lo \
+           $(top_builddir)/src/utility/hash.lo \
+           $(top_builddir)/src/utility/mem.lo \
+           @MYSQL_DRV_OBJ@ @PGSQL_DRV_OBJ@ \
+           @MYSQL_LIB@ @PGSQL_LIB@ \
+           -lpthread -ldl -lm
+db_LDFLAGS = -static
+
 # Related inclusion locations and other options
 AM_CPPFLAGS = -I$(top_srcdir) \
+              -I$(top_srcdir)/src/db \
               -I$(top_srcdir)/src/lang \
               -I$(top_srcdir)/src/network \
               -I$(top_srcdir)/src/utility

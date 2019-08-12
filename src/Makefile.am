@@ -7,7 +7,7 @@
 #
 
 # Just one step in the path to the source packages
-SUBDIRS = lang network utility
+SUBDIRS = db lang network utility
 
 # Removes the automake/autoconf generated files for ultra-clean source tree
 MAINTAINERCLEANFILES = Makefile.in

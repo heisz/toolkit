@@ -62,6 +62,38 @@ AC_ARG_WITH(label,
 
 ####### Part D - Dependent Product/Library Determination #######
 
+# Determine if MySQL is available and provide associated definitions
+AC_CHECK_PROGS(MYSQL_CONFIG, mysql_config)
+if test -n "${MYSQL_CONFIG}"; then
+    AC_DEFINE([HAVE_MYSQL_DB], [1],
+              [Define to 1 if you have build support for MySQL client])
+    MYSQL_SRCDIR="mysql"
+    MYSQL_INCLUDE=`${MYSQL_CONFIG} --include`
+    MYSQL_LIB=`${MYSQL_CONFIG} --libs`
+    MYSQL_DRV_OBJ="\$(top_builddir)/src/db/mysql/dbfmysql.o"
+    AC_SUBST(MYSQL_SRCDIR)
+    AC_SUBST(MYSQL_INCLUDE)
+    AC_SUBST(MYSQL_LIB)
+    AC_SUBST(MYSQL_DRV_OBJ)
+fi
+
+# Determine if PostgreSQL is available and provide associated definitions
+AC_CHECK_PROGS(PGSQL_CONFIG, pg_config)
+if test -n "${MYSQL_CONFIG}"; then
+    AC_DEFINE([HAVE_PGSQL_DB], [1],
+              [Define to 1 if you have build support for PostgreSQL client])
+    PGSQL_SRCDIR="pgsql"
+    PGSQL_INCLUDE_DIR=`${PGSQL_CONFIG} --includedir`
+    PGSQL_INCLUDE="-I${PGSQL_INCLUDE_DIR}"
+    PGSQL_LIB_DIR=`${PGSQL_CONFIG} --libdir`
+    PGSQL_LIB="-L${PGSQL_LIB_DIR} -lpq"
+    PGSQL_DRV_OBJ="\$(top_builddir)/src/db/pgsql/dbfpgsql.o"
+    AC_SUBST(PGSQL_SRCDIR)
+    AC_SUBST(PGSQL_INCLUDE)
+    AC_SUBST(PGSQL_LIB)
+    AC_SUBST(PGSQL_DRV_OBJ)
+fi
+
 ####### Part E - System-Specific Headers/Libraries/Options #######
 
 # Build config.h for header availability determination
@@ -79,6 +111,9 @@ AC_CHECK_HEADERS([sys/epoll.h])
 
 AC_CONFIG_FILES([Makefile
                  src/Makefile
+                 src/db/Makefile
+                 src/db/mysql/Makefile
+                 src/db/pgsql/Makefile
                  src/lang/Makefile
                  src/network/Makefile
                  src/utility/Makefile

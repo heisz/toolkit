@@ -26,6 +26,19 @@ context and descriptions to the origins and intents of the various bits found
 in this toolkit.  That may provide clues to an intended or possible use for
 the underlying code (or even just an understanding of it...)
 
+### db
+
+Originally, this was going to be a separate repository, to keep toolkit
+independent of database library dependencies.  But that is solved with proper
+configure determinations.  There is also the fact that a lot of the db
+facade implementation uses various bits from historical pieces of the toolkit
+elements, so it just belongs here.  So here it is, a generic database api
+facade/abstraction that standardizes common database actions across multiple
+engine implementations.  Note that the facade implementation originates from
+the original MTraq 'database' engine, so some of the oldest code in the toolkit
+can be found here (with lots of cleanup), since influenced by the adventures of
+xkoto and more modern abstraction systems like PDO...
+
 ### lang
 
 This directory contains various language parsing/processing implementations,
@@ -51,10 +64,7 @@ requests from clients.  This originated from the HTTP request server that was
 built to service operational requests for a distributed agent platform but has
 been used for other direct protocol servers (including client emulation).
 
-Note: This library requires elements from the utility library (particularly the
-buffer) and (in windows cross-compile) the pthreads-compat library
-
-Note 2: The original forms of this library incorporated a custom built security
+Note: The original forms of this library incorporated a custom built security
 layer.  Best practice (now, well, even then) would dictate using audited code
 like OpenSSL, HeartBleed bug notwithstanding.  Some remnants might remain...
 
