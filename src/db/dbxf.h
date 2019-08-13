@@ -11,6 +11,7 @@
 /* Grab the standard definitions */
 #include "stdconfig.h"
 #include "hash.h"
+#include "thread.h"
 
 /* Standardized error codes for database operations */
 #define WXDRC_OK 0
@@ -18,14 +19,14 @@
 #define WXDRC_MEM_ERROR -2
 #define WXDRC_DB_ERROR -3
 
-/* Fixed error buffering */
-#define WXDB_FIXED_ERROR_SIZE 2048
-
 /* Externally, all of the facade elements are opaque structure references */
 typedef struct WXDBResultSet WXDBResultSet;
 typedef struct WXDBStatement WXDBStatement;
 typedef struct WXDBConnection WXDBConnection;
 typedef struct WXDBDriver WXDBDriver;
+
+/* Fixed error buffering size */
+#define WXDB_FIXED_ERROR_SIZE 2048
 
 /**
  * Obtain the last error message related to the provided object.  This can
@@ -55,8 +56,9 @@ typedef struct WXDBConnectionPool {
     WXHashTable options;
     WXDBDriver *driver;
 
-    /* Current list of allocated connection instances */
+    /* Current list of allocated connection instances and mutex for access */
     WXDBConnection *connections;
+    WXThread_Mutex connLock;
 
     /* Storage element for pool-level error conditions (alloc safe) */
     char lastErrorMsg[WXDB_FIXED_ERROR_SIZE];
@@ -83,6 +85,23 @@ int WXDBConnectionPool_Init(WXDBConnectionPool *pool, const char *dsn,
                             uint32_t initialSize);
 
 /**
+ * Obtain a connection instance from the pool, either reusing a previous
+ * connection or allocating a new one.  Note that this method is thread-safe.
+ *
+ * @param pool Reference to the pool to pull a connection from.
+ * @return A connection instance or NULL on allocation or connection error.
+ */
+WXDBConnection *WXDBConnectionPool_Obtain(WXDBConnectionPool *pool);
+
+/**
+ * Return a connection instance to the pool, allowing it to be recycled for
+ * other requests.
+ *
+ * @param conn Reference to connection to be returned to the pool.
+ */
+void WXDBConnectionPool_Return(WXDBConnection *conn);
+
+/**
  * Destroy the connection pool instance.  This will close all underlying
  * database connections and release internal resources, but will *not* release
  * the allocated pool structure instance.
@@ -91,5 +110,75 @@ int WXDBConnectionPool_Init(WXDBConnectionPool *pool, const char *dsn,
  * @return One of the WXDRC_* result codes, depending on outcome.
  */
 int WXDBConnectionPool_Destroy(WXDBConnectionPool *pool);
+
+/**
+ * Begin a transaction on the associated database connection.
+ *
+ * @param conn Reference to connection to begin a transaction on.
+ * @return One of the WXDRC_* result codes, depending on outcome.
+ */
+void WXDBConnectionPool_Return(WXDBConnection *conn);
+
+/**
+ * Begin a transaction on the associated database connection.
+ *
+ * @param conn Reference to connection to begin a transaction on.
+ * @return One of the WXDRC_* result codes, depending on outcome.
+ */
+int WXDBConnection_TxnBegin(WXDBConnection *conn);
+
+/**
+ * Mark a savepoint on the associated database connection.  Must be in a
+ * transaction for this to work.
+ *
+ * @param conn Reference to connection to mark a savepoint for.
+ * @param name Name of the savepoint to create, used to match for rollback.
+ * @return One of the WXDRC_* result codes, depending on outcome.
+ */
+int WXDBConnection_TxnSavepoint(WXDBConnection *conn, const char *name);
+
+/**
+ * Rollback the current transaction to the indicated savepoint (or entire
+ * transaction).
+ *
+ * @param conn Reference to connection to rollback.
+ * @param name Name of the savepoint to roll back to or NULL for entire
+ *             transaction.
+ * @return One of the WXDRC_* result codes, depending on outcome.
+ */
+int WXDBConnection_TxnRollback(WXDBConnection *conn, const char *name);
+
+/**
+ * Commit all operations in the current transaction.
+ *
+ * @param conn Reference to connection to commit.
+ * @return One of the WXDRC_* result codes, depending on outcome.
+ */
+int WXDBConnection_TxnCommit(WXDBConnection *conn);
+
+/**
+ * Retrieve a count of the number of rows affected by the last execute action
+ * in the database.  This should only be used for connection-level execute
+ * action, the result for prepared statements is found below.
+ *
+ * @param conn Reference to the connection that executed an update/insert.
+ * @return Count of rows modified by the last query executed on the connection.
+ *         Returns -1 or 0 where applicable/possible if no update was executed
+ *         (vendor dependent).
+ */
+int64_t WXDBConnection_RowsModified(WXDBConnection *conn);
+
+/**
+ * Retrieve the row identifier for the record inserted in the last query
+ * executed on the connection.  This should only be used for connection-level
+ * insert queries, the result for prepared statements is found below.
+ *
+ * @param conn Reference to the connection that executed an insert.
+ * @return Row identifier of the last row inserted by the database, which
+ *         is very vendor dependent and complicated by multiple row inserts
+ *         or stored procedure instances.  Returns zero (where possible) if
+ *         the last statement was not an insert or failed.
+ */
+uint64_t WXDBConnection_LastRowId(WXDBConnection *conn);
 
 #endif

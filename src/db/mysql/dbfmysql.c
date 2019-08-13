@@ -92,10 +92,86 @@ static int WXDBMYSQLConnection_Ping(WXDBConnection *conn) {
     return (mysql_ping((MYSQL *) conn->vdata) == 0) ? TRUE : FALSE;
 }
 
+/****/
+
+static void resetConnResults(WXDBConnection *conn) {
+    *(conn->lastErrorMsg) = '\0';
+}
+
+static int WXDBMYSQLTxn_Begin(WXDBConnection *conn) {
+    MYSQL *db = (MYSQL *) conn->vdata;
+
+    resetConnResults(conn);
+    if (mysql_query(db, "START TRANSACTION") == 0) return WXDRC_OK;
+    _dbxfStrNCpy(conn->lastErrorMsg, mysql_error(db), WXDB_FIXED_ERROR_SIZE);
+    return WXDRC_DB_ERROR;
+}
+
+static int WXDBMYSQLTxn_Savepoint(WXDBConnection *conn, const char *name) {
+    MYSQL *db = (MYSQL *) conn->vdata;
+    char cmd[2048];
+
+    resetConnResults(conn);
+    (void) sprintf(cmd, "SAVEPOINT %s", name);
+    if (mysql_query(db, cmd) == 0) return WXDRC_OK;
+    _dbxfStrNCpy(conn->lastErrorMsg, mysql_error(db), WXDB_FIXED_ERROR_SIZE);
+    return WXDRC_DB_ERROR;
+}
+
+static int WXDBMYSQLTxn_Rollback(WXDBConnection *conn, const char *name) {
+    MYSQL *db = (MYSQL *) conn->vdata;
+    char cmd[2048];
+    int rc;
+
+    resetConnResults(conn);
+    if (name == NULL) {
+        rc = mysql_query(db, "ROLLBACK");
+    } else {
+        (void) sprintf(cmd, "ROLLBACK TO %s", name);
+        rc = mysql_query(db, cmd);
+    }
+
+    if (rc == 0) return WXDRC_OK;
+    _dbxfStrNCpy(conn->lastErrorMsg, mysql_error(db), WXDB_FIXED_ERROR_SIZE);
+    return WXDRC_DB_ERROR;
+}
+
+static int WXDBMYSQLTxn_Commit(WXDBConnection *conn) {
+    MYSQL *db = (MYSQL *) conn->vdata;
+
+    resetConnResults(conn);
+    if (mysql_query(db, "COMMIT") == 0) return WXDRC_OK;
+    _dbxfStrNCpy(conn->lastErrorMsg, mysql_error(db), WXDB_FIXED_ERROR_SIZE);
+    return WXDRC_DB_ERROR;
+}
+
+static int64_t WXDBMYSQLQry_RowsModified(WXDBConnection *conn) {
+    MYSQL *db = (MYSQL *) conn->vdata;
+    uint64_t rows = mysql_affected_rows(db);
+
+    /* In theory, this is broken for reallllllly large datasets */
+    return (rows == (uint64_t) -1) ? -1 : (int64_t) rows;
+}
+
+static uint64_t WXDBMYSQLQry_LastRowId(WXDBConnection *conn) {
+    MYSQL *db = (MYSQL *) conn->vdata;
+
+    /* See the MySQL documentation for lots of comments on the return value */
+    return mysql_insert_id(db);
+}
+
 /* Exposed driver implementation for linking */
 WXDBDriver _WXDBMYSQLDriver = {
     "mysql",
     WXDBMYSQLConnection_Create,
     WXDBMYSQLConnection_Destroy,
-    WXDBMYSQLConnection_Ping
+    WXDBMYSQLConnection_Ping,
+
+    WXDBMYSQLTxn_Begin,
+    WXDBMYSQLTxn_Savepoint,
+    WXDBMYSQLTxn_Rollback,
+    WXDBMYSQLTxn_Commit,
+
+    WXDBMYSQLQry_RowsModified,
+    WXDBMYSQLQry_LastRowId
 };

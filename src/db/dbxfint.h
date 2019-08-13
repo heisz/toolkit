@@ -11,6 +11,9 @@
 /* Obviously we start with the external definitions */
 #include "dbxf.h"
 
+/* Special form of strncpy that truncates with terminator */
+void _dbxfStrNCpy(char *dst, const char *src, int len);
+
 /* A bunch of magic numbers for the various db data structures */
 #define WXDB_MAGIC_POOL 0x6C55BE73
 #define WXDB_MAGIC_CONN 0x18099DC0
@@ -45,8 +48,14 @@ struct WXDBConnection {
     /* Tracking of the pool connections is done through a linked list */
     WXDBConnection *next;
 
+    /* Marker for tracking pool entries that are in use */
+    int inUse;
+
+    /* Like the pool, use a local buffer for connection error messaging */
+    char lastErrorMsg[WXDB_FIXED_ERROR_SIZE];
+
     /* Vendor/driver-specific data elements for the connection instance */
-    void *vdata;
+    void *vdata, *qdata;
 };
 
 /* Definition structure for each driver-specific implementation handler */
@@ -58,6 +67,16 @@ struct WXDBDriver {
     int (*connCreate)(WXDBConnection *conn);
     void (*connDestroy)(WXDBConnection *conn);
     int (*connPing)(WXDBConnection *conn);
+
+    /* Transaction management */
+    int (*txnBegin)(WXDBConnection *conn);
+    int (*txnSavepoint)(WXDBConnection *conn, const char *name);
+    int (*txnRollback)(WXDBConnection *conn, const char *name);
+    int (*txnCommit)(WXDBConnection *conn);
+
+    /* Standard connection-level query elements */
+    int64_t (*qryRowsModified)(WXDBConnection *conn);
+    uint64_t (*qryLastRowId)(WXDBConnection *conn);
 };
 
 #endif

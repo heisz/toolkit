@@ -12,9 +12,10 @@
  * Main testing entry point.  Just a bunch of test instances.
  */
 int main(int argc, char **argv) {
+    char *user = NULL, *password = NULL, *dsn = NULL;
+    WXDBConnection *conna, *connb;
     WXDBConnectionPool *pool;
     int idx, rc;
-    char *user = NULL, *password = NULL, *dsn = NULL;
 
     /* Handle optional pool arguments */
    for (idx = 1; idx < argc; idx++) {
@@ -47,6 +48,50 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
+    /* Grab a couple of connections */
+    conna = WXDBConnectionPool_Obtain(pool);
+    connb = WXDBConnectionPool_Obtain(pool);
+
+    /* A bit of transactional silliness (with error handling) */
+    if (WXDBConnection_TxnBegin(conna) != WXDRC_OK) {
+        (void) fprintf(stderr, "Unexpected begin error: %s\n",
+                       WXDB_GetLastErrorMessage(conna));
+        exit(1);
+    }
+    if (WXDBConnection_TxnSavepoint(conna, "test") != WXDRC_OK) {
+        (void) fprintf(stderr, "Unexpected savepoint error: %s\n",
+                       WXDB_GetLastErrorMessage(conna));
+        exit(1);
+    }
+    if (WXDBConnection_TxnRollback(conna, "test") != WXDRC_OK) {
+        (void) fprintf(stderr, "Unexpected rollback error: %s\n",
+                       WXDB_GetLastErrorMessage(conna));
+        exit(1);
+    }
+    if (WXDBConnection_TxnCommit(conna) != WXDRC_OK) {
+        (void) fprintf(stderr, "Unexpected commit error: %s\n",
+                       WXDB_GetLastErrorMessage(conna));
+        exit(1);
+    }
+    if (WXDBConnection_TxnRollback(conna, "test") != WXDRC_OK) {
+        (void) fprintf(stderr, "Expected rollback error: %s\n",
+                       WXDB_GetLastErrorMessage(conna));
+    }
+
+    if (WXDBConnection_RowsModified(connb) > 0) {
+        (void) fprintf(stderr, "Rows modified for non-update scenario\n");
+        exit(1);
+    }
+    if (WXDBConnection_LastRowId(connb) != 0) {
+        (void) fprintf(stderr, "Row id for non-insert scenario\n");
+        exit(1);
+    }
+
+    /* Put your toys back when you are finished */
+    WXDBConnectionPool_Return(conna);
+    WXDBConnectionPool_Return(connb);
+
+    /* And clean up */
     WXDBConnectionPool_Destroy(pool);
     WXFree(pool);
 }

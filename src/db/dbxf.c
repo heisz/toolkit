@@ -11,6 +11,7 @@
 
 /* Share error messaging */
 static char *memErrorMsg = "Memory allocation failure";
+static char *mtxErrorMsg = "Mutex init/lock error for connection pool";
 
 /* Jiggery-pokery to dynamically linked the vendor driver information */
 #ifdef HAVE_MYSQL_DB
@@ -48,12 +49,13 @@ const char *WXDB_GetLastErrorMessage(void *obj) {
         case WXDB_MAGIC_POOL:
             return ((WXDBConnectionPool *) obj)->lastErrorMsg;
         case WXDB_MAGIC_CONN:
+            return ((WXDBConnection *) obj)->lastErrorMsg;
         case WXDB_MAGIC_STMT:
         case WXDB_MAGIC_RSLT:
             break;
     }
 
-    return "Invalid/unrecognized database object instance";
+    return "Invalid/unrecognized database object type/instance";
 }
 
 /* Common methods for connection pool cleanup */
@@ -65,14 +67,26 @@ static void poolFlush(WXDBConnectionPool *pool) {
     /* Note: this only cleans content, not vendor resources */
     (void) WXHash_Scan(&(pool->options), propFlush, NULL);
     WXHash_Destroy(&(pool->options));
+
+    WXThread_MutexDestroy(&(pool->connLock));
 }
 
-/* Used more than once!  In-place string lowercase converter */
+/* Various string utilities for use in the core and driver instances */
 static void strtolower(char *ptr) {
     while (*ptr != '\0') {
         *ptr = tolower(*ptr);
         ptr++;
     }
+}
+void _dbxfStrNCpy(char *dst, const char *src, int len) {
+    char ch;
+
+    while ((--len) > 0) {
+        ch = *(dst++) = *(src++);
+        if (ch == '\0') return;
+    }
+
+    *dst = '\0';
 }
 
 /* As well as the method that pushes duplicated properties */
@@ -81,15 +95,14 @@ static int pushPoolOption(WXDBConnectionPool *pool,
                           const char *srcval, int vallen) {
     char *key, *val, *oldkey, *oldval;
 
-    if (((key = (char *) WXMalloc(keylen + 1)) == NULL) || 
-            ((val = (char *) WXMalloc(vallen + 1)) == NULL)) {
+    /* Watch the preincrements, they allocate for the terminator copy */
+    if (((key = (char *) WXMalloc(++keylen)) == NULL) || 
+            ((val = (char *) WXMalloc(++vallen)) == NULL)) {
         if (key != NULL) WXFree(key);
         return FALSE;
     }
-    (void) strncpy(key, srckey, keylen);
-    key[keylen] = '\0';
-    (void) strncpy(val, srcval, vallen);
-    val[vallen] = '\0';
+    _dbxfStrNCpy(key, srckey, keylen);
+    _dbxfStrNCpy(val, srcval, vallen);
     strtolower(key);
 
     if (!WXHash_PutEntry(&(pool->options), key, val,
@@ -107,17 +120,21 @@ static int pushPoolOption(WXDBConnectionPool *pool,
 
 /* Common method to allocate and initialize a connection instance */
 static int createConnection(WXDBConnectionPool *pool,
-                            WXDBConnection **connRef) {
+                            WXDBConnection **connRef, int inUse) {
     WXDBConnection *conn, *lastConn;
     int rc;
 
     /* Allocate and initialize the base connection data instance */
     conn = (WXDBConnection *) WXMalloc(sizeof(WXDBConnection));
     if (conn == NULL) return WXDRC_MEM_ERROR;
+    conn->magic = WXDB_MAGIC_CONN;
     conn->pool = pool;
     conn->driver = pool->driver;
     conn->next = NULL;
+    conn->inUse = inUse;
     conn->vdata = NULL;
+    conn->qdata = NULL;
+    *(conn->lastErrorMsg) = '\0';
 
     /* Hand off to the driver instance to actually create the connection */
     rc = (conn->driver->connCreate)(conn);
@@ -127,6 +144,13 @@ static int createConnection(WXDBConnectionPool *pool,
     }
 
     /* Got to here, record the connection instance (under lock share) */
+    if (WXThread_MutexLock(&(pool->connLock)) != WXTRC_OK) {
+        (void) strcpy(pool->lastErrorMsg, mtxErrorMsg);
+        (conn->driver->connDestroy)(conn);
+        WXFree(conn);
+        return WXDRC_SYS_ERROR;
+    }
+
     if (pool->connections == NULL) {
         pool->connections = conn;
     } else {
@@ -135,6 +159,13 @@ static int createConnection(WXDBConnectionPool *pool,
         lastConn->next = conn;
     }
     if (connRef != NULL) *connRef = conn;
+
+    if (WXThread_MutexUnlock(&(pool->connLock)) != WXTRC_OK) {
+        (void) strcpy(pool->lastErrorMsg, mtxErrorMsg);
+        (conn->driver->connDestroy)(conn);
+        WXFree(conn);
+        return WXDRC_SYS_ERROR;
+    }
 
     return WXDRC_OK;
 }
@@ -166,17 +197,21 @@ int WXDBConnectionPool_Init(WXDBConnectionPool *pool, const char *dsn,
     pool->lastErrorMsg[0] = '\0';
     (void) WXHash_InitTable(&(pool->options), 0);
     pool->connections = NULL;
+    if (WXThread_MutexInit(&(pool->connLock), FALSE) != WXTRC_OK) {
+        (void) strcpy(pool->lastErrorMsg, mtxErrorMsg);
+        return WXDRC_SYS_ERROR;
+    }
 
     /* Parse the DSN content, starting with the driver */
     ptr = strchr(dsn, ':');
     if (ptr == NULL) {
         (void) strcpy(pool->lastErrorMsg,
                       "Invalid DSN, missing driver separator (:)");
+        WXThread_MutexDestroy(&(pool->connLock));
         return WXDRC_SYS_ERROR;
     }
     if ((len = ptr - dsn) > 127) len = 127;
-    (void) strncpy(pool->driverName, dsn, len);
-    pool->driverName[len] = '\0';
+    _dbxfStrNCpy(pool->driverName, dsn, len + 1);
     strtolower(pool->driverName);
     dsn = ptr + 1;
 
@@ -190,6 +225,7 @@ int WXDBConnectionPool_Init(WXDBConnectionPool *pool, const char *dsn,
     if (pool->driver == NULL) {
         (void) strcpy(pool->lastErrorMsg,
                       "Unrecognized/unsupported driver specified in DSN");
+        WXThread_MutexDestroy(&(pool->connLock));
         return WXDRC_SYS_ERROR;
     }
 
@@ -237,7 +273,7 @@ int WXDBConnectionPool_Init(WXDBConnectionPool *pool, const char *dsn,
     /* And away we go, create the initial connection set (validates login) */
     if (initialSize == 0) initialSize = 1;
     while (initialSize > 0) {
-        rc = createConnection(pool, NULL);
+        rc = createConnection(pool, NULL, FALSE);
         if (rc != WXDRC_OK) {
             /* For non-database errors, the pool is toast */
             if (rc != WXDRC_DB_ERROR) {
@@ -257,6 +293,57 @@ int WXDBConnectionPool_Init(WXDBConnectionPool *pool, const char *dsn,
 }
 
 /**
+ * Obtain a connection instance from the pool, either reusing a previous
+ * connection or allocating a new one.  Note that this method is thread-safe.
+ *
+ * @param pool Reference to the pool to pull a connection from.
+ * @return A connection instance or NULL on allocation or connection error.
+ */
+WXDBConnection *WXDBConnectionPool_Obtain(WXDBConnectionPool *pool) {
+    WXDBConnection *conn;
+
+    /* Find an unused connection in the current pool (under lock) */
+    if (WXThread_MutexLock(&(pool->connLock)) != WXTRC_OK) {
+        (void) strcpy(pool->lastErrorMsg, mtxErrorMsg);
+        return NULL;
+    }
+
+    /* Let your fingers do the walking... */
+    conn = pool->connections;
+    while (conn != NULL) {
+        if (!conn->inUse) {
+            conn->inUse = TRUE;
+            break;
+        }
+
+        conn = conn->next;
+    }
+
+    if (WXThread_MutexUnlock(&(pool->connLock)) != WXTRC_OK) {
+        (void) strcpy(pool->lastErrorMsg, mtxErrorMsg);
+        return NULL;
+    }
+
+    /* And if one isn't found, expand the pool (currently unlimited) */
+    if (conn == NULL) {
+        if (createConnection(pool, &conn, TRUE) != WXDRC_OK) return NULL;
+    }
+
+    return conn;
+}
+
+/**
+ * Return a connection instance to the pool, allowing it to be recycled for
+ * other requests.
+ * 
+ * @param conn Reference to connection to be returned to the pool.
+ */
+void WXDBConnectionPool_Return(WXDBConnection *conn) {
+    /* Technically, this would be mutexed but a bit is pretty atomic */
+    conn->inUse = FALSE;
+}
+
+/**
  * Destroy the connection pool instance.  This will close all underlying
  * database connections and release internal resources, but will *not* release
  * the allocated pool structure instance.
@@ -268,8 +355,10 @@ int WXDBConnectionPool_Destroy(WXDBConnectionPool *pool) {
     WXDBConnection *conn, *next;;
 
     /* Rip out connections array from pool */
+    (void) WXThread_MutexLock(&(pool->connLock));
     conn = pool->connections;
     pool->connections = NULL;
+    (void) WXThread_MutexUnlock(&(pool->connLock));
 
     /* Shutdown all allocated connections where created */
     while (conn != NULL) {
@@ -282,3 +371,78 @@ int WXDBConnectionPool_Destroy(WXDBConnectionPool *pool) {
     /* Use the common method for local cleanup */
     poolFlush(pool);
 }
+
+/**
+ * Begin a transaction on the associated database connection.
+ *
+ * @param conn Reference to connection to begin a transaction on.
+ * @return One of the WXDRC_* result codes, depending on outcome.
+ */
+int WXDBConnection_TxnBegin(WXDBConnection *conn) {
+    return (conn->driver->txnBegin)(conn);
+}
+
+/**
+ * Mark a savepoint on the associated database connection.  Must be in a
+ * transaction for this to work.
+ *
+ * @param conn Reference to connection to mark a savepoint for.
+ * @param name Name of the savepoint to create, used to match for rollback.
+ * @return One of the WXDRC_* result codes, depending on outcome.
+ */
+int WXDBConnection_TxnSavepoint(WXDBConnection *conn, const char *name) {
+    return (conn->driver->txnSavepoint)(conn, name);
+}
+
+/**
+ * Rollback the current transaction to the indicated savepoint (or entire
+ * transaction).
+ *
+ * @param conn Reference to connection to rollback.
+ * @param name Name of the savepoint to roll back to or NULL for entire
+ *             transaction.
+ * @return One of the WXDRC_* result codes, depending on outcome.
+ */
+int WXDBConnection_TxnRollback(WXDBConnection *conn, const char *name) {
+    return (conn->driver->txnRollback)(conn, name);
+}
+
+/**
+ * Commit all operations in the current transaction.
+ *
+ * @param conn Reference to connection to commit.
+ * @return One of the WXDRC_* result codes, depending on outcome.
+ */
+int WXDBConnection_TxnCommit(WXDBConnection *conn) {
+    return (conn->driver->txnCommit)(conn);
+}
+
+/**
+ * Retrieve a count of the number of rows affected by the last execute action
+ * in the database.  This should only be used for connection-level execute
+ * action, the result for prepared statements is found below.
+ *
+ * @param conn Reference to the connection that executed an update/insert.
+ * @return Count of rows modified by the last query executed on the connection.
+ *         Returns -1 or 0 where applicable/possible if no update was executed
+ *         (vendor dependent).
+ */
+int64_t WXDBConnection_RowsModified(WXDBConnection *conn) {
+    return (conn->driver->qryRowsModified)(conn);
+}
+
+/**
+ * Retrieve the row identifier for the record inserted in the last query
+ * executed on the connection.  This should only be used for connection-level
+ * insert queries, the result for prepared statements is found below.
+ *
+ * @param conn Reference to the connection that executed an insert.
+ * @return Row identifier of the last row inserted by the database, which
+ *         is very vendor dependent and complicated by multiple row inserts
+ *         or stored procedure instances.  Returns zero (where possible) if
+ *         the last statement was not an insert or failed.
+ */
+uint64_t WXDBConnection_LastRowId(WXDBConnection *conn) {
+    return (conn->driver->qryLastRowId)(conn);
+}
+
