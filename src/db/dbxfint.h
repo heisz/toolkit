@@ -11,8 +11,9 @@
 /* Obviously we start with the external definitions */
 #include "dbxf.h"
 
-/* Special form of strncpy that truncates with terminator */
+/* Special form of strncpy that truncates with terminator and the malloc err */
 void _dbxfStrNCpy(char *dst, const char *src, int len);
+void _dbxfMemFail(char *dst);
 
 /* A bunch of magic numbers for the various db data structures */
 #define WXDB_MAGIC_POOL 0x6C55BE73
@@ -25,16 +26,19 @@ struct WXDBResultSet {
     /* All structures start with this to support abstract methods */
     uint32_t magic;
 
-    /* Vendor-specific data elements for the result set instance */
-    void *vdata;
+    /* Parent origin of the result set, statement and/or connection */
+	WXDBConnection *parentConn;
+    WXDBStatement *parentStmt;
+    WXDBDriver *driver;
 };
 
 struct WXDBStatement {
     /* All structures start with this to support abstract methods */
     uint32_t magic;
+    WXDBDriver *driver;
 
-    /* Vendor-specific data elements for the statement instance */
-    void *vdata;
+    /* Like the others, use a local buffer for connection error messaging */
+    char lastErrorMsg[WXDB_FIXED_ERROR_SIZE];
 };
 
 struct WXDBConnection {
@@ -53,9 +57,6 @@ struct WXDBConnection {
 
     /* Like the pool, use a local buffer for connection error messaging */
     char lastErrorMsg[WXDB_FIXED_ERROR_SIZE];
-
-    /* Vendor/driver-specific data elements for the connection instance */
-    void *vdata, *qdata;
 };
 
 /* Definition structure for each driver-specific implementation handler */
@@ -64,7 +65,7 @@ struct WXDBDriver {
     const char *name;
 
     /* Methods to create, destroy and test (T/F) a connection instance */
-    int (*connCreate)(WXDBConnection *conn);
+    int (*connCreate)(WXDBConnectionPool *pool, WXDBConnection **connRef);
     void (*connDestroy)(WXDBConnection *conn);
     int (*connPing)(WXDBConnection *conn);
 
@@ -75,8 +76,18 @@ struct WXDBDriver {
     int (*txnCommit)(WXDBConnection *conn);
 
     /* Standard connection-level query elements */
+    int (*qryExecute)(WXDBConnection *conn, const char *query);
+    WXDBResultSet *(*qryExecuteQuery)(WXDBConnection *conn, const char *query);
     int64_t (*qryRowsModified)(WXDBConnection *conn);
     uint64_t (*qryLastRowId)(WXDBConnection *conn);
+
+    /* Result set handling */
+    uint32_t (*rsColumnCount)(WXDBResultSet *rs);
+    const char *(*rsColumnName)(WXDBResultSet *rs, uint32_t columnIdx);
+    int (*rsColumnIsNull)(WXDBResultSet *rs, uint32_t columnIdx);
+    const char *(*rsColumnData)(WXDBResultSet *rs, uint32_t columnIdx);
+    int (*rsNextRow)(WXDBResultSet *rs);
+    void (*rsClose)(WXDBResultSet *rs);
 };
 
 #endif

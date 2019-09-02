@@ -30,14 +30,29 @@ the underlying code (or even just an understanding of it...)
 
 Originally, this was going to be a separate repository, to keep toolkit
 independent of database library dependencies.  But that is solved with proper
-configure determinations.  There is also the fact that a lot of the db
+autoconf determinations.  There is also the fact that a lot of the db
 facade implementation uses various bits from historical pieces of the toolkit
 elements, so it just belongs here.  So here it is, a generic database api
 facade/abstraction that standardizes common database actions across multiple
 engine implementations.  Note that the facade implementation originates from
 the original MTraq 'database' engine, so some of the oldest code in the toolkit
 can be found here (with lots of cleanup), since influenced by the adventures of
-xkoto and more modern abstraction systems like PDO...
+xkoto and more modern abstraction systems like PDO.
+
+Addendum: as 20 years of code was reviewed and merged (in various forms), it
+mutated over time from a local caching model (from the original database engine)
+towards a referential model (like ODBC). A lot of history in there based on
+the evolution of knowledge and the database interface world in general.
+The final winner of the merging was a simplified model where the database
+content is locally pulled in single row fashion, with metadata.  Simple
+interface for basic database operations that do not need high-volume or
+high performance processing support.  If you need that, then ODBC-based drivers
+are the choice (and at some point the ODBC skeletons from the older MTraq
+engines might be included but that has some significant entanglements over the
+years).  In that same vein, the data interfaces are predominantly string based,
+both for simplicity and support of the lowest common denominator across the
+database platforms.  Minor performance impact (maybe) but alternative
+interfaces should be used if that level of performance is required.
 
 ### lang
 

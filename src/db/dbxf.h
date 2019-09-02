@@ -157,6 +157,28 @@ int WXDBConnection_TxnRollback(WXDBConnection *conn, const char *name);
 int WXDBConnection_TxnCommit(WXDBConnection *conn);
 
 /**
+ * Execute a non-prepared statement, typically an insert or update as this
+ * method cannot return select data (refer to ExecuteQuery for that method).
+ *
+ * @param conn Reference to the connection to execute the query against.
+ * @param query The database query to be executed.
+ * @return One of the WXDRC_* result codes, depending on outcome.
+ */
+int WXDBConnection_Execute(WXDBConnection *conn, const char *query);
+
+/**
+ * Execute a non-prepared statement that returns a result set (select).  Note
+ * that the cursor is positioned before the first row.
+ *
+ * @param conn Reference to the connection to execute the query against.
+ * @param query The database query to be executed.
+ * @return A result set instance to retrieve data from (first row will be
+ *         in place, where applicable) or NULL on a query or memory failure.
+ */
+WXDBResultSet *WXDBConnection_ExecuteQuery(WXDBConnection *conn,
+                                           const char *query);
+
+/**
  * Retrieve a count of the number of rows affected by the last execute action
  * in the database.  This should only be used for connection-level execute
  * action, the result for prepared statements is found below.
@@ -180,5 +202,67 @@ int64_t WXDBConnection_RowsModified(WXDBConnection *conn);
  *         the last statement was not an insert or failed.
  */
 uint64_t WXDBConnection_LastRowId(WXDBConnection *conn);
+
+/**
+ * Retrieve the number of returned columns in the result set.  Used for
+ * generic display tooling (query should know column count).
+ *
+ * @param rs Reference to the result set to retrieve column count for.
+ * @return Number of columns in the result set.
+ */
+uint32_t WXDBResultSet_ColumnCount(WXDBResultSet *rs);
+
+/**
+ * Retrieve the name of the indicated column, used for generic display tooling
+ * (again, query should know).
+ *
+ * @param rs Reference to the result set to retrieve the column name for.
+ * @param columnIdx Numeric index of the column, starting from zero.
+ * @return Name of the column, as an internal reference from the underlying
+ *         driver (must be copied to retain or modify).
+ */
+const char *WXDBResultSet_ColumnName(WXDBResultSet *rs, uint32_t columnIdx);
+
+/**
+ * Determine if the database value was NULL for the indicated column (assuming
+ * null-ability).
+ *
+ * @param rs Reference to the result set to retrieve the null state for.
+ * @param columnIdx Numeric index of the column, starting from zero.
+ * @return TRUE (non-zero) if the column in the current row is NULL,
+ *         FALSE (zero) if a value exists in the indicated column.
+ */
+int WXDBResultSet_ColumnIsNull(WXDBResultSet *rs, uint32_t columnIdx);
+
+/**
+ * Retrieve the string conversion of the data for the indicated column.  Note
+ * that NULL string conversion is driver dependent, so use the IsNull method
+ * instead of looking for NULL values from this method.
+ *
+ * @param rs Reference to the result set to retrieve the column data for.
+ * @param columnIdx Numeric index of the column, starting from zero.
+ * @return String representation of the underlying column data for the current
+ *         row, as an internal reference from the driver (must be copied to
+ *         retain or modify).
+ */
+const char *WXDBResultSet_ColumnData(WXDBResultSet *rs, uint32_t columnIdx);
+
+/**
+ * Advance the result set position to the next row (on creation, the cursor
+ * location is before the first row).
+ *
+ * @param rs Reference to the result set to retrieve the next row for.
+ * @return TRUE (non-zero) if the next row was retrieved, FALSE (zero) if 
+ *         there were no more rows in the result set.
+ */
+int WXDBResultSet_NextRow(WXDBResultSet *rs);
+
+/**
+ * Release the resources associated to this result set, including the
+ * result set instance.
+ *
+ * @param rs Reference to the result set to close/release.
+ */
+void WXDBResultSet_Close(WXDBResultSet *rs);
 
 #endif

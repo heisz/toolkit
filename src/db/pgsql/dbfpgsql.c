@@ -10,6 +10,56 @@
 #include "buffer.h"
 #include "hash.h"
 
+/* PostgreSQL specific connection object */
+typedef struct WXPGSQLConnection {
+    /* This appears first for virtual inheritance */
+    WXDBConnection base;
+
+    /* PostgreSQL-specific elements follow */
+    PGconn *db;
+    PGresult *lastConnRslt;
+} WXPGSQLConnection;
+
+typedef struct WXPGSQLStatement {
+    /* This appears first for virtual inheritance */
+    WXDBStatement base;
+} WXPGSQLStatement;
+
+typedef struct WXPGSQLResultSet {
+    /* This appears first for virtual inheritance */
+    WXDBResultSet base;
+
+    /* Associated query result set */
+    PGresult *rslt;
+
+    /* Store the column count for optimized error checking */
+    uint32_t columnCount, currentRow, rowCount;
+} WXPGSQLResultSet;
+
+/* Common method for result set creation from statement execution */
+static WXDBResultSet *createResultSet(WXDBConnection *conn,
+                                      WXDBStatement *pstmt,
+                                      PGresult *rslt) {
+    WXPGSQLResultSet *res;
+
+    /* Allocate up front */
+    res = (WXPGSQLResultSet *) WXMalloc(sizeof(WXPGSQLResultSet));
+    if (res == NULL) {
+        return NULL;
+    }
+    res->base.parentConn = conn;
+    res->base.parentStmt = pstmt;
+    res->base.driver = (conn != NULL) ? conn->driver : pstmt->driver;
+    res->rslt = rslt;
+
+    /* Optimize */
+    res->columnCount = (uint32_t) PQnfields(rslt);
+    res->currentRow = (uint32_t) -1;
+    res->rowCount = PQntuples(rslt);
+
+    return (WXDBResultSet *) res;
+}
+
 /* Utility method to quote/escape a string value into the provided buffer */
 static int appendParameter(WXBuffer *buffer, char *param, char *val) {
     int len = strlen(param) + 1 + 2 * strlen(val) + 2 + 2;
@@ -37,19 +87,28 @@ static int appendParameter(WXBuffer *buffer, char *param, char *val) {
  *     port - the associated port for the above
  *     unix_socket - the name of the unix socket to connect to (overrides any
  *                   host/port specification)
- *     schema - the name of the initial database (schema) to connect to
+ *     dbname - the name of the initial database to connect to
  *     charset - the default character set for the connection
  *
  *     <user> - the authentication username (from DSN or options)
  *     <password> - the authentication password (ditto)
  */
 
-/* Connection-level operations */
-static int WXDBPGSQLConnection_Create(WXDBConnection *conn) {
-    WXHashTable *options = &(conn->pool->options);
+/***** Connection management operations *****/
+
+static int WXDBPGSQLConnection_Create(WXDBConnectionPool *pool,
+                                      WXDBConnection **connRef) {
+    WXHashTable *options = &(pool->options);
     char *opt, paramBuff[2048];
+    WXPGSQLConnection *conn;
     WXBuffer params;
-    PGconn *db;
+
+    /* Allocate the extended object instance */
+    conn = (WXPGSQLConnection *) WXMalloc(sizeof(WXPGSQLConnection));
+    if (conn == NULL) {
+        _dbxfMemFail(pool->lastErrorMsg);
+        return WXDRC_MEM_ERROR;
+    }
 
     /* Build up the connection parameter string */
     WXBuffer_InitLocal(&params, paramBuff, sizeof(paramBuff));
@@ -71,7 +130,7 @@ static int WXDBPGSQLConnection_Create(WXDBConnection *conn) {
         }
     }
 
-    opt = (char *) WXHash_GetEntry(options, "schema",
+    opt = (char *) WXHash_GetEntry(options, "dbname",
                                    WXHash_StrHashFn, WXHash_StrEqualsFn);
     if (opt != NULL) {
         if (!appendParameter(&params, "dbname", opt)) return WXDRC_MEM_ERROR;
@@ -89,48 +148,52 @@ static int WXDBPGSQLConnection_Create(WXDBConnection *conn) {
     }
 
     /* Reach out and touch someone... */
-    db = PQconnectdb((char *) params.buffer);
+    conn->db = PQconnectdb((char *) params.buffer);
+    conn->lastConnRslt = NULL;
     WXBuffer_Destroy(&params);
-    if (PQstatus(db) != CONNECTION_OK) {
-        (void) strncpy(conn->pool->lastErrorMsg, PQerrorMessage(db),
-                       WXDB_FIXED_ERROR_SIZE);
-        conn->pool->lastErrorMsg[WXDB_FIXED_ERROR_SIZE - 1] = '\0';
-        PQfinish(db);
+    if (PQstatus(conn->db) != CONNECTION_OK) {
+        _dbxfStrNCpy(pool->lastErrorMsg, PQerrorMessage(conn->db),
+                     WXDB_FIXED_ERROR_SIZE);
+        PQfinish(conn->db);
         return WXDRC_DB_ERROR;
     }
 
-    /* If we get here, congrats!  Store the handle for subsequent requests */
-    conn->vdata = db;
-
+    /* All done, connection is ready for use */
+    *connRef = &(conn->base);
     return WXDRC_OK;
 }
 
 static void WXDBPGSQLConnection_Destroy(WXDBConnection *conn) {
+    WXPGSQLConnection *pgConn = (WXPGSQLConnection *) conn;
+
     /* Close is pretty straightforward */
-    if (conn->qdata != NULL) {
-        PQclear((PGresult *) conn->qdata);
-        conn->qdata = NULL;
+    if (pgConn->lastConnRslt != NULL) {
+        PQclear(pgConn->lastConnRslt);
+        pgConn->lastConnRslt = NULL;
     }
-    PQfinish((PGconn *) conn->vdata);
+    PQfinish(pgConn->db);
 }
 
 static int WXDBPGSQLConnection_Ping(WXDBConnection *conn) {
     /* There really isn't a ping, just check current connection status */
-    return (PQstatus((PGconn *) conn->vdata) == CONNECTION_OK) ? TRUE : FALSE;
+    return (PQstatus(((WXPGSQLConnection *) conn)->db) == CONNECTION_OK) ?
+                                                                  TRUE : FALSE;
 }
 
-/****/
+/***** Connection query operations *****/
 
 static void resetConnResults(WXDBConnection *conn) {
-    if (conn->qdata != NULL) {
-        PQclear((PGresult *) conn->qdata);
-        conn->qdata = NULL;
+    WXPGSQLConnection *pgConn = (WXPGSQLConnection *) conn;
+
+    if (pgConn->lastConnRslt != NULL) {
+        PQclear(pgConn->lastConnRslt);
+        pgConn->lastConnRslt = NULL;
     }
     *(conn->lastErrorMsg) = '\0';
 }
 
 static int WXDBPGSQLTxn_Begin(WXDBConnection *conn) {
-    PGconn *db = (PGconn *) conn->vdata;
+    PGconn *db = ((WXPGSQLConnection *) conn)->db;
     PGresult *rslt;
 
     resetConnResults(conn);
@@ -146,7 +209,7 @@ static int WXDBPGSQLTxn_Begin(WXDBConnection *conn) {
 } 
 
 static int WXDBPGSQLTxn_Savepoint(WXDBConnection *conn, const char *name) {
-    PGconn *db = (PGconn *) conn->vdata;
+    PGconn *db = ((WXPGSQLConnection *) conn)->db;
     char cmd[2048];
     PGresult *rslt;
 
@@ -164,7 +227,7 @@ static int WXDBPGSQLTxn_Savepoint(WXDBConnection *conn, const char *name) {
 }
 
 static int WXDBPGSQLTxn_Rollback(WXDBConnection *conn, const char *name) {
-    PGconn *db = (PGconn *) conn->vdata;
+    PGconn *db = ((WXPGSQLConnection *) conn)->db;
     char cmd[2048];
     PGresult *rslt;
 
@@ -186,7 +249,7 @@ static int WXDBPGSQLTxn_Rollback(WXDBConnection *conn, const char *name) {
 }   
 
 static int WXDBPGSQLTxn_Commit(WXDBConnection *conn) {
-    PGconn *db = (PGconn *) conn->vdata;
+    PGconn *db = ((WXPGSQLConnection *) conn)->db;
     PGresult *rslt;
 
     resetConnResults(conn);
@@ -201,8 +264,45 @@ static int WXDBPGSQLTxn_Commit(WXDBConnection *conn) {
     return WXDRC_DB_ERROR;
 }
 
+static int WXDBPGSQLQry_Execute(WXDBConnection *conn, const char *query) {
+    WXPGSQLConnection *pgConn = (WXPGSQLConnection *) conn;
+    PGresult *rslt;
+
+    resetConnResults(conn);
+    rslt = PQexec(pgConn->db, query);
+    if (PQresultStatus(rslt) == PGRES_COMMAND_OK) {
+        pgConn->lastConnRslt = rslt;
+        return WXDRC_OK;
+    }
+    _dbxfStrNCpy(conn->lastErrorMsg, PQresultErrorMessage(rslt),
+                 WXDB_FIXED_ERROR_SIZE);
+    PQclear(rslt);
+    return WXDRC_DB_ERROR;
+}
+
+static WXDBResultSet *WXDBPGSQLQry_ExecuteQuery(WXDBConnection *conn,
+                                                const char *query) {
+    WXPGSQLConnection *pgConn = (WXPGSQLConnection *) conn;
+    PGresult *rslt;
+
+    resetConnResults(conn);
+    rslt = PQexec(pgConn->db, query);
+    if (PQresultStatus(rslt) == PGRES_TUPLES_OK) {
+        pgConn->lastConnRslt = rslt;
+        return createResultSet(conn, NULL, rslt);
+    } else if (PQresultStatus(rslt) == PGRES_COMMAND_OK) {
+        (void) strcpy(conn->lastErrorMsg,
+                      "ExecuteQuery called with non-result-set query");
+    } else {
+        _dbxfStrNCpy(conn->lastErrorMsg, PQresultErrorMessage(rslt),
+                     WXDB_FIXED_ERROR_SIZE);
+    }
+    PQclear(rslt);
+    return NULL;
+}
+
 static int64_t WXDBPGSQLQry_RowsModified(WXDBConnection *conn) {
-    PGresult *rslt = (PGresult *) conn->qdata;
+    PGresult *rslt = ((WXPGSQLConnection *) conn)->lastConnRslt;
     const char *cnt;
 
     if (rslt == NULL) return -1;
@@ -211,10 +311,58 @@ static int64_t WXDBPGSQLQry_RowsModified(WXDBConnection *conn) {
 }
 
 static uint64_t WXDBPGSQLQry_LastRowId(WXDBConnection *conn) {
-    PGresult *rslt = (PGresult *) conn->qdata;
+    PGresult *rslt = ((WXPGSQLConnection *) conn)->lastConnRslt;
 
     if (rslt == NULL) return 0;
     return (uint64_t) PQoidValue(rslt);
+}
+
+/***** Result set operations *****/
+
+static uint32_t WXDBPGSQLRsltSet_ColumnCount(WXDBResultSet *rs) {
+    /* Use the optimized value */
+    return ((WXPGSQLResultSet *) rs)->columnCount;
+}
+
+static const char *WXDBPGSQLRsltSet_ColumnName(WXDBResultSet *rs,
+                                               uint32_t colIdx) {
+    WXPGSQLResultSet *rsltSet = (WXPGSQLResultSet *) rs;
+
+    if (colIdx >= rsltSet->columnCount) return NULL;
+    return PQfname(rsltSet->rslt, colIdx);
+}
+
+static int WXDBPGSQLRsltSet_ColumnIsNull(WXDBResultSet *rs,
+                                         uint32_t colIdx) {
+    WXPGSQLResultSet *rsltSet = (WXPGSQLResultSet *) rs;
+
+    if (colIdx >= rsltSet->columnCount) return TRUE;
+    return PQgetisnull(rsltSet->rslt, rsltSet->currentRow, colIdx) ?
+                                                              TRUE : FALSE;
+}
+
+static const char *WXDBPGSQLRsltSet_ColumnData(WXDBResultSet *rs,
+                                               uint32_t colIdx) {
+    WXPGSQLResultSet *rsltSet = (WXPGSQLResultSet *) rs;
+
+    if (colIdx >= rsltSet->columnCount) return NULL;
+    if (PQgetisnull(rsltSet->rslt, rsltSet->currentRow, colIdx)) return NULL;
+    return PQgetvalue(rsltSet->rslt, rsltSet->currentRow, colIdx);
+}
+
+static int WXDBPGSQLRsltSet_NextRow(WXDBResultSet *rs) {
+    WXPGSQLResultSet *rsltSet = (WXPGSQLResultSet *) rs;
+
+    rsltSet->currentRow++;
+    return (rsltSet->currentRow < rsltSet->rowCount) ? TRUE : FALSE;
+}
+
+static void WXDBPGSQLRsltSet_Close(WXDBResultSet *rs) {
+    WXPGSQLConnection *conn = (WXPGSQLConnection *) rs->parentConn;
+    WXPGSQLResultSet *rsltSet = (WXPGSQLResultSet *) rs;
+
+    if (conn->lastConnRslt != rsltSet->rslt) PQclear(rsltSet->rslt);
+    WXFree(rsltSet);
 }
 
 /* Exposed driver implementation for linking */
@@ -229,6 +377,15 @@ WXDBDriver _WXDBPGSQLDriver = {
     WXDBPGSQLTxn_Rollback,
     WXDBPGSQLTxn_Commit,
 
+    WXDBPGSQLQry_Execute,
+    WXDBPGSQLQry_ExecuteQuery,
     WXDBPGSQLQry_RowsModified,
-    WXDBPGSQLQry_LastRowId
+    WXDBPGSQLQry_LastRowId,
+
+    WXDBPGSQLRsltSet_ColumnCount,
+    WXDBPGSQLRsltSet_ColumnName,
+    WXDBPGSQLRsltSet_ColumnIsNull,
+    WXDBPGSQLRsltSet_ColumnData,
+    WXDBPGSQLRsltSet_NextRow,
+    WXDBPGSQLRsltSet_Close
 };
