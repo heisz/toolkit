@@ -432,8 +432,8 @@ int WXDBConnection_Execute(WXDBConnection *conn, const char *query) {
  *
  * @param conn Reference to the connection to execute the query against.
  * @param query The database query to be executed.
- * @return A result set instance to retrieve data from (first row will be
- *         in place, where applicable) or NULL on a query or memory failure.
+ * @return A result set instance to retrieve data from (use Next() to get the
+ *         first row, where applicable) or NULL on a query or memory failure.
  */
 WXDBResultSet *WXDBConnection_ExecuteQuery(WXDBConnection *conn, 
                                            const char *query) {
@@ -468,6 +468,74 @@ int64_t WXDBConnection_RowsModified(WXDBConnection *conn) {
 uint64_t WXDBConnection_LastRowId(WXDBConnection *conn) {
     return (conn->driver->qryLastRowId)(conn);
 }
+
+/***********************/
+
+/**
+ * Create a prepared statement instance for the given SQL statement (standard
+ * execute or result query).
+ *
+ * @param conn Reference to the connection to prepare the statement against.
+ * @param stmt SQL statement to be prepared.  Per the standard, parameter
+ *             insertion locations are marked by the '?' character.
+ * @return A prepared statement instance or NULL on memory or SQL error
+ *         (refer to error buffer in connection).
+ */
+WXDBStatement *WXDBConnection_Prepare(WXDBConnection *conn, const char *stmt) {
+    return (conn->driver->stmtPrepare)(conn, stmt);
+}
+
+/**
+ * Execute a prepared statement, typically an insert or update as this
+ * method cannot return select data (refer to ExecuteQuery for that method).
+ *
+ * @param stmt Reference to the prepared statement to be executed.
+ * @return One of the WXDRC_* result codes, depending on outcome.
+ */
+int WXDBStatement_Execute(WXDBStatement *stmt) {
+    return (stmt->driver->stmtExecute)(stmt);
+}
+
+/**
+ * Execute a prepared statement that returns a result set (select).  Note
+ * that the cursor is positioned before the first row.
+ *
+ * @param stmt Reference to the prepared statement to be executed.
+ * @return A result set instance to retrieve data from (use Next() to get the
+ *         first row, where applicable) or NULL on a query or memory failure.
+ */
+WXDBResultSet *WXDBStatement_ExecuteQuery(WXDBStatement *stmt) {
+    return (stmt->driver->stmtExecuteQuery)(stmt);
+}
+
+/**
+ * Retrieve a count of the number of rows affected by the last execute action
+ * for the prepared statement.
+ *
+ * @param stmt Reference to the statement that executed an update/insert.
+ * @return Count of rows modified by the last statement execution.  Returns -1
+ *         or 0 where applicable/possible if no update was executed (vendor
+ *         dependent).
+ */
+int64_t WXDBStatement_RowsModified(WXDBStatement *stmt) {
+    return (stmt->driver->stmtRowsModified)(stmt);
+}
+
+/**
+ * Retrieve the row identifier for the record inserted in the last query
+ * executed on the prepared statement.
+ *
+ * @param conn Reference to the statement that executed an insert.
+ * @return Row identifier of the last row inserted by the statement, which
+ *         is very vendor dependent and complicated by multiple row inserts
+ *         or stored procedure instances.  Returns zero (where possible) if
+ *         the last statement was not an insert or failed.
+ */
+uint64_t WXDBStatement_LastRowId(WXDBStatement *stmt) {
+    return (stmt->driver->stmtLastRowId)(stmt);
+}
+
+/***********************/
 
 /**
  * Retrieve the number of returned columns in the result set.  Used for

@@ -35,6 +35,9 @@ struct WXDBResultSet {
 struct WXDBStatement {
     /* All structures start with this to support abstract methods */
     uint32_t magic;
+
+    /* Parent connection information for the statement */
+    WXDBConnection *parentConn;
     WXDBDriver *driver;
 
     /* Like the others, use a local buffer for connection error messaging */
@@ -80,6 +83,13 @@ struct WXDBDriver {
     WXDBResultSet *(*qryExecuteQuery)(WXDBConnection *conn, const char *query);
     int64_t (*qryRowsModified)(WXDBConnection *conn);
     uint64_t (*qryLastRowId)(WXDBConnection *conn);
+
+    /* Prepared statement fun */
+    WXDBStatement *(*stmtPrepare)(WXDBConnection *conn, const char *stmt);
+    int (*stmtExecute)(WXDBStatement *stmt);
+    WXDBResultSet *(*stmtExecuteQuery)(WXDBStatement *stmt);
+    int64_t (*stmtRowsModified)(WXDBStatement *stmt);
+    uint64_t (*stmtLastRowId)(WXDBStatement *stmt);
 
     /* Result set handling */
     uint32_t (*rsColumnCount)(WXDBResultSet *rs);
