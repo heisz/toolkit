@@ -1,7 +1,7 @@
 /*
  * Structures and methods for parsing, representing and generating JSON data.
  *
- * Copyright (C) 2015-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2015-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -159,5 +159,55 @@ void WXJSON_Destroy(WXJSONValue *value);
  *         found.
  */
 WXJSONValue *WXJSON_Find(WXJSONValue *root, const char *childName);
+
+/* Enumeration of data types for physical JSON binding (below) */
+typedef enum {
+    /* Data type is an allocated string pointer, recognizes string values */
+    WXJSONBIND_STR,
+
+    /* Data type is a native int, recognizes true/false data values */
+    WXJSONBIND_BOOLEAN,
+
+    /* Data type is a native int, recognizes int data values */
+    WXJSONBIND_INT,
+
+    /* Data type is size_t, recognizes int data values */
+    WXJSONBIND_SIZE,
+
+    /* Data type is native long long int, recognizes int data values */
+    WXJSONBIND_LONG,
+
+    /* Data type is a native double, recognizes double values */
+    WXJSONBIND_DOUBLE,
+
+    /* Data type is a pointer (JSON value reference), recognizes object/array */
+    WXJSONBIND_REF
+} WXJSONBindType;
+
+/* Definition information for binding JSON data to physical elements */
+typedef struct {
+    const char *name;
+    WXJSONBindType type;
+    uint32_t offset;
+    int required;
+} WXJSONBindDefn;
+
+/**
+ * Utility method to bind a JSON data object (hierarchy) into a physical
+ * data structure.  The binding method is reasonably strict, will not convert
+ * between JSON and native data types outside of direct allocation/casting.
+ *
+ * @param root Parsed JSON data node to bind information from.
+ * @param data Pointer to physical data structure to bind into.
+ * @param defn Binding information for translating JSON to physical elements.
+ * @param defnCount Number of elements in the binding information array.
+ * @param errorMsg Externally provided buffer for returning binding error
+ *                 information.
+ * @param errorMsgLen Length of provided buffer.
+ * @return TRUE if bind processing was successful, FALSE on error (message
+ *         in provided buffer).
+ */
+int WXJSON_Bind(WXJSONValue *root, void *data, WXJSONBindDefn *defn,
+                int defnCount, char *errorMsg, int errorMsgLen);
 
 #endif

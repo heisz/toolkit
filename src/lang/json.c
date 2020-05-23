@@ -921,3 +921,151 @@ WXJSONValue *WXJSON_Find(WXJSONValue *root, const char *childName) {
 
     return NULL;
 }
+
+/* Internal messaging method to delineate types */
+static char *descJSONType(WXJSONValueType type) {
+    switch (type) {
+        case WXJSONVALUE_TRUE:
+        case WXJSONVALUE_FALSE:
+            return "boolean (t/f)";
+        case WXJSONVALUE_NULL:
+            return "null";
+        case WXJSONVALUE_INT:
+            return "integer";
+        case WXJSONVALUE_DOUBLE:
+            return "double/float";
+        case WXJSONVALUE_STRING:
+            return "string";
+        case WXJSONVALUE_OBJECT:
+            return "object";
+        case WXJSONVALUE_ARRAY:
+            return "array";
+    }
+
+    return "unknown";
+}
+
+/**
+ * Utility method to bind a JSON data object (hierarchy) into a physical
+ * data structure.  The binding method is reasonably strict, will not convert
+ * between JSON and native data types outside of direct allocation/casting.
+ *
+ * @param root Parsed JSON data node to bind information from.
+ * @param data Pointer to physical data structure to bind into.
+ * @param defn Binding information for translating JSON to physical elements.
+ * @param defnCount Number of elements in the binding information array.
+ * @param errorMsg Externally provided buffer for returning binding error
+ *                 information.
+ * @param errorMsgLen Length of provided buffer.
+ * @return TRUE if bind processing was successful, FALSE on error (message
+ *         in provided buffer).
+ */
+int WXJSON_Bind(WXJSONValue *root, void *data, WXJSONBindDefn *defn,
+                int defnCount, char *errorMsg, int errorMsgLen) {
+    WXJSONValue *val;
+    char *ptr;
+    int idx;
+
+    /* Zoom through the provided binding definitions */
+    for (idx = 0; idx < defnCount; idx++, defn++) {
+        /* Find the corresponding data point and dereference the structure */
+        val = WXJSON_Find(root, defn->name);
+        if (val == NULL) {
+            if (defn->required != 0) {
+                (void) snprintf(errorMsg, errorMsgLen,
+                                "Missing JSON value for '%s'", defn->name);
+                return FALSE;
+            }
+            continue;
+        }
+        ptr = ((char *) data) + defn->offset;
+
+        /* Bind away! */
+        switch (defn->type) {
+            case WXJSONBIND_STR:
+                if ((val->type != WXJSONVALUE_STRING) &&
+                        (val->type != WXJSONVALUE_NULL)) {
+                    (void) snprintf(errorMsg, errorMsgLen,
+                                    "Expecting string/null value for '%s', "
+                                    "found %s instead", defn->name,
+                                    descJSONType(val->type));
+                    return FALSE;
+                }
+                if (val->type == WXJSONVALUE_NULL) val = NULL;
+
+                /* Lots of jiggerypokery to manage string (re)allocation */
+                if (val != NULL) {
+                    if (*((char **) ptr) != NULL) WXFree(*((char **) ptr));
+                    *((char **) ptr) = WXMalloc(strlen(val->value.sval) + 1);
+                    if (*((char **) ptr) != NULL) {
+                        (void) strcpy(*((char **) ptr), val->value.sval);
+                    }
+                } else {
+                    *((char **) ptr) = NULL;
+                }
+                break;
+            case WXJSONBIND_BOOLEAN:
+                if ((val->type != WXJSONVALUE_TRUE) &&
+                        (val->type != WXJSONVALUE_FALSE)) {
+                    (void) snprintf(errorMsg, errorMsgLen,
+                                    "Expecting true/false value for '%s', "
+                                    "found %s instead", defn->name,
+                                    descJSONType(val->type));
+                    return FALSE;
+                }
+                *((int *) ptr) = (val->type == WXJSONVALUE_TRUE) ? TRUE : FALSE;
+                break;
+            case WXJSONBIND_INT:
+            case WXJSONBIND_SIZE:
+            case WXJSONBIND_LONG:
+                if (val->type != WXJSONVALUE_INT) {
+                    (void) snprintf(errorMsg, errorMsgLen,
+                                    "Expecting integer value for '%s', "
+                                    "found %s instead", defn->name,
+                                    descJSONType(val->type));
+                    return FALSE;
+                }
+                if (defn->type == WXJSONBIND_INT) {
+                    *((int *) ptr) = (int) val->value.ival;
+                } else if (defn->type == WXJSONBIND_SIZE) {
+                    *((size_t *) ptr) = (size_t) val->value.ival;
+                } else {
+                    *((long long int *) ptr) = val->value.ival;
+                }
+                break;
+            case WXJSONBIND_DOUBLE:
+                /* Only convenience conversion, as int is a double as well */
+                if ((val->type != WXJSONVALUE_INT) &&
+                        (val->type != WXJSONVALUE_DOUBLE)) {
+                    (void) snprintf(errorMsg, errorMsgLen,
+                                    "Expecting numeric value for '%s', "
+                                    "found %s instead", defn->name,
+                                    descJSONType(val->type));
+                    return FALSE;
+                }
+                if (defn->type == WXJSONBIND_INT) {
+                    *((double *) ptr) = (double) val->value.ival;
+                } else {
+                    *((double *) ptr) = val->value.dval;
+                }
+                break;
+            case WXJSONBIND_REF:
+                if ((val->type != WXJSONVALUE_OBJECT) &&
+                        (val->type != WXJSONVALUE_ARRAY)) {
+                    (void) snprintf(errorMsg, errorMsgLen,
+                                    "Expecting object/array value for '%s', "
+                                    "found %s instead", defn->name,
+                                    descJSONType(val->type));
+                    return FALSE;
+                }
+                *((WXJSONValue **) ptr) = val;
+                break;
+            default:
+                (void) snprintf(errorMsg, errorMsgLen,
+                                "Internal error, unrecognized bind type");
+                return FALSE;
+        }
+    }
+
+    return TRUE;
+}
