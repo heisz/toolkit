@@ -86,6 +86,36 @@ static char *logFileBaseName(const char *fileName) {
 }
 
 /**
+ * Logging utility method to get a consistent timestamp for applications
+ * using this logging framework.
+ *
+ * @param timestamp Character buffer to write formatted timestamp into.
+ */
+void WXLog_GetFormattedTimestamp(char *timestamp) {
+    WXThread_TimeSpec tmspec;
+#ifdef _WXWIN_BUILD
+    struct tm *tm;
+#endif
+    struct tm ltm;
+
+    WXThread_GetEpochTime(&tmspec);
+
+    /* Obtain logging timestamp */
+#ifndef _WXWIN_BUILD
+    localtime_r(&(tmspec.tv_sec), &ltm);
+#else
+    tm = localtm(&(tmspec.tv_sec));
+    if (tm != NULL) {
+        (void) memcpy(&ltm, tm, sizeof(struct tm));
+    }
+#endif
+    (void) sprintf(timestamp, "%d-%2.2d-%2.2d %2.2d:%2.2d:%2.2d.%3.3d",
+                   (1900 + ltm.tm_year), ltm.tm_mon + 1, ltm.tm_mday,
+                   ltm.tm_hour, ltm.tm_min, ltm.tm_sec,
+                   (int) (tmspec.tv_nsec / 1000000L));
+}
+
+/**
  * Base-level logging method, wrapped by supporting definitions below.
  *
  * @param fileName The name of the associated file for the logging origin,
@@ -99,12 +129,7 @@ static char *logFileBaseName(const char *fileName) {
 void _WXLog_Print(const char *fileName, const int lineNum, WXLogLevel level,
                   const char *format, ...) {
     char *msgPtr, message[MESSAGE_SIZE], timestamp[128];
-    WXThread_TimeSpec tmspec;
     size_t allocLen = 0;
-#ifdef _WXWIN_BUILD
-    struct tm *tm;
-#endif
-    struct tm ltm;
     FILE *logFp;
     va_list ap;
     int len;
@@ -114,8 +139,8 @@ void _WXLog_Print(const char *fileName, const int lineNum, WXLogLevel level,
         logFp = (level < WXLOG_INFO) ? stderr : stdout;
     }
 
-    /* Grab the logging time right up front */
-    WXThread_GetEpochTime(&tmspec);
+    /* Grab the logging timestamp right up front */
+    WXLog_GetFormattedTimestamp(timestamp);
 
     /* Format the message, handling automatic allocation as needed */
     msgPtr = message;
@@ -144,20 +169,7 @@ void _WXLog_Print(const char *fileName, const int lineNum, WXLogLevel level,
         }
     }
 
-    /* Obtain logging timestamp */
-#ifndef _WXWIN_BUILD
-    localtime_r(&(tmspec.tv_sec), &ltm);
-#else
-    tm = localtm(&(tmspec.tv_sec));
-    if (tm != NULL) {
-        (void) memcpy(&ltm, tm, sizeof(struct tm));
-    }
-#endif
-    (void) sprintf(timestamp, "%d-%2.2d-%2.2d %2.2d:%2.2d:%2.2d.%3.3d",
-                   (1900 + ltm.tm_year), ltm.tm_mon + 1, ltm.tm_mday,
-                   ltm.tm_hour, ltm.tm_min, ltm.tm_sec,
-                   (int) (tmspec.tv_nsec / 1000000L));
-
+    /* Out it goes! */
     (void) fprintf(logFp, "%s %c [%s:%d] %s\n",
                    timestamp, *(shortLogLevelNames[level]),
                    logFileBaseName(fileName), lineNum, msgPtr);

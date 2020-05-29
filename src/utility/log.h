@@ -1,7 +1,7 @@
 /*
  * Basic implementation of a logging facility for server platforms.
  *
- * Copyright (C) 2001-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2001-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -24,6 +24,14 @@ typedef enum {
  *                    standard console is used (non-daemon mode).
  */
 void WXLog_Init(const char *appName, const char *logFileName);
+
+/**
+ * Logging utility method to get a consistent timestamp for applications
+ * using this logging framework.
+ *
+ * @param timestamp Character buffer to write formatted timestamp into.
+ */
+void WXLog_GetFormattedTimestamp(char *timestamp);
 
 /**
  * Base-level logging method, wrapped by supporting definitions below.
