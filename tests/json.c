@@ -1,7 +1,7 @@
 /*
  * Test interface for the JSON data processor.
  *
- * Copyright (C) 2015-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2015-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -83,7 +83,8 @@ static struct LexErrorDef {
      { "xyzzy", WXJSONERR_INVALID_VALUE }
 };
 
-#define LEX_ERROR_COUNT (sizeof(lexerErrorConds) / sizeof(struct LexErrorDef))
+#define LEX_ERROR_COUNT \
+               (int) (sizeof(lexerErrorConds) / sizeof(struct LexErrorDef))
 
 static struct ParseErrorDef {
      char *content;
@@ -97,7 +98,7 @@ static struct ParseErrorDef {
 };
 
 #define PARSE_ERROR_COUNT \
-               (sizeof(parserErrorConds) / sizeof(struct ParseErrorDef))
+               (int) (sizeof(parserErrorConds) / sizeof(struct ParseErrorDef))
 
 /**
  * Main testing entry point.  Lots of parsing is about to follow...
@@ -442,7 +443,7 @@ int main(int argc, char **argv) {
     WXBuffer_Init(&buffer, 0);
     value = WXJSON_Decode("true");
     if ((WXJSON_Encode(&buffer, value, FALSE) == NULL) ||
-            (strcmp(buffer.buffer, "true") != 0)) {
+            (strcmp((char *) buffer.buffer, "true") != 0)) {
         (void) fprintf(stderr, "Incorrect dec/enc of true value\n");
         exit(1);
     }
@@ -451,7 +452,7 @@ int main(int argc, char **argv) {
 
     value = WXJSON_Decode("false");
     if ((WXJSON_Encode(&buffer, value, FALSE) == NULL) ||
-            (strcmp(buffer.buffer, "false") != 0)) {
+            (strcmp((char *) buffer.buffer, "false") != 0)) {
         (void) fprintf(stderr, "Incorrect dec/enc of false value\n");
         exit(1);
     }
@@ -460,7 +461,7 @@ int main(int argc, char **argv) {
 
     value = WXJSON_Decode("null");
     if ((WXJSON_Encode(&buffer, value, FALSE) == NULL) ||
-            (strcmp(buffer.buffer, "null") != 0)) {
+            (strcmp((char *) buffer.buffer, "null") != 0)) {
         (void) fprintf(stderr, "Incorrect dec/enc of null value\n");
         exit(1);
     }
@@ -469,7 +470,7 @@ int main(int argc, char **argv) {
 
     value = WXJSON_Decode("123");
     if ((WXJSON_Encode(&buffer, value, FALSE) == NULL) ||
-            (strcmp(buffer.buffer, "123") != 0)) {
+            (strcmp((char *) buffer.buffer, "123") != 0)) {
         (void) fprintf(stderr, "Incorrect dec/enc of int value\n");
         exit(1);
     }
@@ -479,8 +480,8 @@ int main(int argc, char **argv) {
     /* Strings are a big one... */
     value = WXJSON_Decode("\"-\\\"-\\\\-\\/-\\b-\\f-\\n-\\r-\\t-\"");
     if ((WXJSON_Encode(&buffer, value, FALSE) == NULL) ||
-            (strcmp(buffer.buffer,
-                     "\"-\\\"-\\\\-\\/-\\b-\\f-\\n-\\r-\\t-\"") != 0)) {
+            (strcmp((char *) buffer.buffer,
+                    "\"-\\\"-\\\\-\\/-\\b-\\f-\\n-\\r-\\t-\"") != 0)) {
         (void) fprintf(stderr, "Incorrect dec/enc of str value\n");
         exit(1);
     }
@@ -489,8 +490,8 @@ int main(int argc, char **argv) {
 
     value = WXJSON_Decode("\"-\\u0007-\\u0154-\\u7562\"");
     if ((WXJSON_Encode(&buffer, value, FALSE) == NULL) ||
-            (strcmp(buffer.buffer,
-                     "\"-\\u0007-\\u0154-\\u7562\"") != 0)) {
+            (strcmp((char *) buffer.buffer,
+                    "\"-\\u0007-\\u0154-\\u7562\"") != 0)) {
         (void) fprintf(stderr, "Incorrect dec/enc of str value 2");
         exit(1);
     }
@@ -500,8 +501,8 @@ int main(int argc, char **argv) {
     /* Of course, so are objects and arrays */
     value = WXJSON_Decode("[12, null, \"abc\", true]");
     if ((WXJSON_Encode(&buffer, value, FALSE) == NULL) ||
-            (strcmp(buffer.buffer,
-                     "[12,null,\"abc\",true]") != 0)) {
+            (strcmp((char *) buffer.buffer,
+                    "[12,null,\"abc\",true]") != 0)) {
         (void) fprintf(stderr, "Incorrect dec/enc of array value\n");
         exit(1);
     }
@@ -510,8 +511,8 @@ int main(int argc, char **argv) {
 
     value = WXJSON_Decode("{\"abc\": 1234}");
     if ((WXJSON_Encode(&buffer, value, FALSE) == NULL) ||
-            (strcmp(buffer.buffer,
-                     "{\"abc\":1234}") != 0)) {
+            (strcmp((char *) buffer.buffer,
+                    "{\"abc\":1234}") != 0)) {
         (void) fprintf(stderr, "Incorrect dec/enc of object value\n");
         exit(1);
     }

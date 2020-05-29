@@ -1,7 +1,7 @@
 /*
  * Test interface for the database facade wrapper.
  *
- * Copyright (C) 1997-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -40,9 +40,10 @@ int main(int argc, char **argv) {
     char *user = NULL, *password = NULL, *dsn = NULL;
     char *execQuery = NULL, *rsQuery = NULL, *nmv;
     WXDBConnection *conna, *connb;
-    int idx, rc, cols, *colLens;
     WXDBConnectionPool *pool;
+    unsigned int *colLens;
     WXDBResultSet *crs;
+    int idx, cols;
 
     /* Handle optional pool arguments */
    for (idx = 1; idx < argc; idx++) {
@@ -112,8 +113,8 @@ int main(int argc, char **argv) {
             exit(1);
         }
         cols = WXDBResultSet_ColumnCount(crs);
-        colLens = (int *) WXMalloc(cols * sizeof(int));
-        for (int idx = 0; idx < WXDBResultSet_ColumnCount(crs); idx++) {
+        colLens = (unsigned int *) WXMalloc(cols * sizeof(int));
+        for (idx = 0; idx < (int) WXDBResultSet_ColumnCount(crs); idx++) {
             nmv = (char *) WXDBResultSet_ColumnName(crs, idx);
             colLens[idx] = strlen(nmv) + 4;
             (void) fprintf(stdout, "%s %s     ", ((idx == 0) ? "" : "|"), nmv);
@@ -121,7 +122,7 @@ int main(int argc, char **argv) {
         (void) fprintf(stdout, "\n");
 
         while (WXDBResultSet_NextRow(crs)) {
-            for (int idx = 0; idx < WXDBResultSet_ColumnCount(crs); idx++) {
+            for (idx = 0; idx < (int) WXDBResultSet_ColumnCount(crs); idx++) {
                 if (WXDBResultSet_ColumnIsNull(crs, idx)) {
                     (void) fprintf(stdout, "%s NULL%.*s ",
                                    ((idx == 0) ? "" : "|"),

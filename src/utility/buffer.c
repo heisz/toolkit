@@ -1,7 +1,7 @@
 /*
  * Dynamic/rolling memory buffer, which supports stream-like data processing.
  *
- * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -73,10 +73,10 @@ void WXBuffer_Empty(WXBuffer *buffer) {
 uint8_t *WXBuffer_EnsureCapacity(WXBuffer *buffer, size_t capacity,
                                  int consume) {
     size_t reqLength = buffer->length + capacity;
-    ssize_t allocLength = buffer->allocLength;
+    size_t allocLength = (buffer->allocLength < 0) ? -buffer->allocLength :
+                                                      buffer->allocLength;
     uint8_t *newBuffer;
 
-    if (allocLength < 0) allocLength = -allocLength;
     if (reqLength > allocLength) {
         /* Attempt to consume first, if allowed */
         if ((consume) && (buffer->offset != 0)) {
@@ -176,7 +176,8 @@ uint8_t *WXBuffer_Printf(WXBuffer *buffer, const char *format, ...) {
 
         /* Try to print in the allocated space */
         va_start(ap, format);
-        len = vsnprintf(buffer->buffer + buffer->length, reqSize, format, ap);
+        len = vsnprintf((char *) (buffer->buffer + buffer->length),
+                        reqSize, format, ap);
         va_end(ap);
 
         /* If conversion was not truncated, all complete */
@@ -746,13 +747,13 @@ static uint8_t *_pack(WXBuffer *buffer, const char *format, size_t flen,
                 if (repeatCount == RPT_VAR_LEN) repeatCount = 1;
                 /* This is a lot easier.. */
                 if (isPack) {
-                    if (repeatCount > buffer->length) {
+                    if (repeatCount > (int) buffer->length) {
                         buffer->length = 0;
                     } else {
                         buffer->length -= repeatCount;
                     }
                 } else {
-                    if (repeatCount > buffer->offset) {
+                    if (repeatCount > (int) buffer->offset) {
                         buffer->offset = 0;
                     } else {
                         buffer->offset -= repeatCount;
@@ -898,7 +899,8 @@ uint8_t *WXBuffer_VUnpack(WXBuffer *buffer, const char *format, va_list ap) {
  *         contents may be read).
  */
 ssize_t WXBuffer_ReadFile(WXBuffer *buffer, int fd, size_t length) {
-    ssize_t len, count = 0, block = 8192;
+    ssize_t len, count = 0;
+    size_t block = 8192;
     uint8_t *ptr;
 
     if (length == 0) length = (size_t) -1;

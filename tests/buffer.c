@@ -1,7 +1,7 @@
 /*
  * Test interface for the buffer toolkit elements.
  *
- * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -91,7 +91,7 @@ static void testBasics() {
     }
 
 static void dump(WXBuffer *buffer) {
-    int idx;
+    uint32_t idx;
 
     for (idx = 0; idx < buffer->length; idx++) {
         if (idx != 0) {
@@ -112,6 +112,7 @@ static void testPack() {
 
     /* Standard text encodings */
     WXBuffer_Empty(&buffer);
+    dump(&buffer);
     WXBuffer_Pack(&buffer, "aa4", "abc", "defghi");
     BCHK(buffer, ((uint8_t[]) { 0x61, 0x64, 0x65, 0x66, 0x67 }),
          "truncated text packing");

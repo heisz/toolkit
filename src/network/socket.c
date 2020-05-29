@@ -1,7 +1,7 @@
 /*
  * General methods for network socket creation and processing.
  *
- * Copyright (C) 1997-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -453,7 +453,6 @@ int WXSocket_OpenTCPClient(char *hostIpAddr, char *service,
 int WXSocket_OpenUDPClient(char *hostIpAddr, char *service,
                            WXSocket *socketRef, void **addrInfoRef) {
     struct addrinfo hints, *addrInfo = NULL;
-    WXSocket socketHandle;
     int rc;
 
     /* Retrieve target address information */
@@ -483,10 +482,10 @@ static int WXSocket_BindServer(struct addrinfo *addrInfo, uint32_t *portRef,
                                WXSocket *socketRef) {
 #ifdef _WXWIN_BUILD
     SOCKET socketHandle;
-    int optLen, localAddrLen;
+    int localAddrLen;
 #else
     int32_t socketHandle;
-    socklen_t optLen, localAddrLen;
+    socklen_t localAddrLen;
 #endif
     struct sockaddr_in localAddr;
     int optVal, rc, errnum;

@@ -1,7 +1,7 @@
 /*
  * Generic hashtable implementation, with pluggable hashing algorithms.
  *
- * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -40,7 +40,7 @@ static void *ResidualMarker = (void *) "xyzzy";
  * @return TRUE (non-zero) if initialized, FALSE (zero) if memory error occured.
  */
 int WXHash_InitTable(WXHashTable *table, int startSize) {
-    unsigned int nByTwo = 1;
+    int nByTwo = 1;
 
     /* Zero or minimal size, must be 2^n - 1 */
     if (startSize != 0) {

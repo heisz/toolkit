@@ -1,7 +1,7 @@
 /*
  * Basic implementation of a logging facility for server platforms.
  *
- * Copyright (C) 2001-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2001-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -15,6 +15,7 @@
 #define MESSAGE_SIZE 1024
 
 /* Various static lists aligned to the logging levels */
+/*
 static const int logLevelSyslog[] = {
     LOG_ERR, LOG_WARNING, LOG_INFO, LOG_DEBUG
 };
@@ -22,6 +23,7 @@ static const int logLevelSyslog[] = {
 static const char *logLevelNames[] = {
      "Error", "Warn", "Info", "Debug", "Trace"
 };
+*/
 
 static const char *shortLogLevelNames[] = {
      "Err", "Wrn", "Inf", "Dbg", "Trc"
@@ -98,10 +100,14 @@ void _WXLog_Print(const char *fileName, const int lineNum, WXLogLevel level,
                   const char *format, ...) {
     char *msgPtr, message[MESSAGE_SIZE], timestamp[128];
     WXThread_TimeSpec tmspec;
-    size_t allocLen = 0, len;
-    struct tm *tm, ltm;
+    size_t allocLen = 0;
+#ifdef _WXWIN_BUILD
+    struct tm *tm;
+#endif
+    struct tm ltm;
     FILE *logFp;
     va_list ap;
+    int len;
 
     /* Capture pre-initialization conditions */
     if ((logFp = logFileHandles[level]) == NULL) {
@@ -122,7 +128,7 @@ void _WXLog_Print(const char *fileName, const int lineNum, WXLogLevel level,
 
         if (len < 0) {
             allocLen *= 2;
-        } else if (len > allocLen) {
+        } else if (len > (int) allocLen) {
             allocLen = len + 2;
         } else {
             break;

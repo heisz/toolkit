@@ -1,0 +1,23 @@
+# Autotool elements
+/configure-scripts
+/autom4te.cache
+/aclocal.m4
+/config.*
+/libtool
+/configure
+/stamp-h1
+Makefile.in
+Makefile
+.deps
+
+# Intermediates from C-based compilation
+*.o
+*.a
+*.la
+*.lo
+*.so
+*.so.*
+*.gcno
+
+# Editing
+*.swp

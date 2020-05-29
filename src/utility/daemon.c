@@ -1,7 +1,7 @@
 /*
  * Collection of elements related to building a daemon service instance.
  *
- * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -33,9 +33,9 @@ static int pidTrkFd = -1;
  *                      HUP signals for termination and configuration reload,
  *                      respectively.
  */
-int daemonStart(const char *rootDir, const char *appName,
-                const char *pidFileName, const char *logFileName,
-                void (*signalHandler)(int)) {
+void daemonStart(const char *rootDir, const char *appName,
+                 const char *pidFileName, const char *logFileName,
+                 void (*signalHandler)(int)) {
     struct sigaction sigAction;
     pid_t childpid;
     char buff[64];

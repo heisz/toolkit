@@ -1,7 +1,7 @@
 /*
  * Platform wrapper to handle network epoll/poll/select event processing.
  *
- * Copyright (C) 2012-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2012-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -164,7 +164,7 @@ static short txlateEvents(uint32_t src) {
  */
 int WXEvent_RegisterEvent(WXEvent_Registry *registry, uint32_t socketHandle,
                           uint32_t events, WXEvent_UserData userData) {
-    ssize_t allocCount = registry->allocEntryCount;
+    size_t allocCount = registry->allocEntryCount;
     WXEVENT_STRUCT *entries, *entry, src;
 #ifdef WXEVENT_USE_EPOLL
     struct epoll_event evt;
@@ -295,7 +295,7 @@ int WXEvent_UpdateEvent(WXEvent_Registry *registry, uint32_t socketHandle,
  *         WXNRC_SYS_ERROR on underlying system error.
  */
 int WXEvent_UnregisterEvent(WXEvent_Registry *registry, uint32_t socketHandle) {
-    int entryIdx;
+    unsigned int entryIdx;
 #ifdef WXEVENT_USE_EPOLL
     struct epoll_event evt;
 #endif

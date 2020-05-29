@@ -1,7 +1,7 @@
 /*
  * Generic array/list implementation for arbitrary data objects.
  *
- * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -71,10 +71,10 @@ void WXArray_Empty(WXArray *array) {
  */
 static void *WXArray_EnsureCapacity(WXArray *array, size_t capacity) {
     size_t reqLength = array->length + capacity;
-    ssize_t allocLength = array->allocLength;
+    size_t allocLength = (array->allocLength < 0) ? -array->allocLength :
+                                                    array->allocLength;
     void *newArray;
 
-    if (allocLength < 0) allocLength = -allocLength;
     if (reqLength > allocLength) {
         /* TODO - look at the doubling algorithm in array and buffer... */
         allocLength <<= 1;
@@ -184,7 +184,8 @@ void *WXArray_Shift(WXArray *array, void *object) {
  */
 int WXArray_Scan(WXArray *array, WXArrayEntryScanCB entryCB, void *userData) {
     uint8_t *ptr = (uint8_t *) array->array;
-    int idx, rc;
+    unsigned int idx;
+    int rc;
 
     for (idx = 0; idx < array->length; idx++) {
         rc = (*entryCB)(array, ptr, userData);

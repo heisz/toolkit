@@ -1,7 +1,7 @@
 #
 # Autoconf macro definitions for the generics toolkits.
 #
-# Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
+# Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
 # See the LICENSE file accompanying the distribution your rights to use
 # this software.
 #
@@ -14,9 +14,10 @@ AC_REVISION(0.1.0)dnl
 AC_INIT([toolkit], [0.1.0])
 # Secret location for the standard configuration scripts
 AC_CONFIG_AUX_DIR(configure-scripts)
-AM_INIT_AUTOMAKE
+AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_MSG_RESULT([Configuring Toolkit -Version 0.1.0])
 AM_CONFIG_HEADER(config.h)
+AC_CANONICAL_HOST
 
 # Uses libtool notation for sub-library compilation
 AM_PROG_AR
@@ -27,10 +28,6 @@ dtag=`date "+%y%m%d%H%M%S"`
 ac_default_prefix="/tmp/wrdg-tk-${dtag}"
 year=`date "+%G"`
 
-
-# Configure the automake system and target host instance
-AM_INIT_AUTOMAKE([-Wall foreign])
-AC_CANONICAL_HOST
 
 ####### Part B - Build/Compilation/Release Tool Determination #######
 
