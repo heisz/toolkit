@@ -5,6 +5,7 @@
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
+#include <ctype.h>
 #include "hash.h"
 #include "mem.h"
 
@@ -529,6 +530,44 @@ int WXHash_StrEqualsFn(void *keya, void *keyb) {
 
     while (*ptra != '\0') {
         if (*(ptra++) != *(ptrb++)) return FALSE;
+    }
+    if (*ptrb != '\0') return FALSE;
+
+    return TRUE;
+}
+
+/**
+ * Convenience method for hashing null-character terminated string values
+ * without case consideration.
+ *
+ * @param key The string key to be hashed.
+ * @return An appropriate hashcode value for the string.
+ */
+unsigned int WXHash_StrCaseHashFn(void *key) {
+    /* Yup, this comes straight from the Perl hashing algorithm, except... */
+    uint8_t *ptr = (uint8_t *) key;
+    unsigned int hashCode = 0;
+
+    while (*ptr != 0) {
+        hashCode = hashCode * 33 + tolower(*(ptr++));
+    }
+
+    return hashCode;
+}
+
+/**
+ * Convenience method for comparing two null-character terminated strings
+ * for caseless equality.
+ *
+ * @param keya The key to compare against.
+ * @param keyb The key to compare to.
+ * @return TRUE if the values of the two keys are equal, FALSE otherwise.
+ */
+int WXHash_StrCaseEqualsFn(void *keya, void *keyb) {
+    char *ptra = (char *) keya, *ptrb = (char *) keyb;
+
+    while (*ptra != '\0') {
+        if (tolower(*(ptra++)) != tolower(*(ptrb++))) return FALSE;
     }
     if (*ptrb != '\0') return FALSE;
 

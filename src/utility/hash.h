@@ -1,7 +1,7 @@
 /*
  * Generic hashtable implementation, with pluggable hashing algorithms.
  *
- * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -289,5 +289,24 @@ unsigned int WXHash_StrHashFn(void *key);
  * @return TRUE if the values of the two keys are equal, FALSE otherwise.
  */
 int WXHash_StrEqualsFn(void *keya, void *keyb);
+
+/**
+ * Convenience method for hashing null-character terminated string values
+ * without case consideration.
+ *
+ * @param key The string key to be hashed.
+ * @return An appropriate hashcode value for the string.
+ */
+unsigned int WXHash_StrCaseHashFn(void *key);
+
+/**
+ * Convenience method for comparing two null-character terminated strings
+ * for caseless equality.
+ *
+ * @param keya The key to compare against.
+ * @param keyb The key to compare to.
+ * @return TRUE if the values of the two keys are equal, FALSE otherwise.
+ */
+int WXHash_StrCaseEqualsFn(void *keya, void *keyb);
 
 #endif
