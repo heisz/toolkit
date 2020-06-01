@@ -7,6 +7,7 @@
  */
 #include <ctype.h>
 #include "jsonint.h"
+#include "encoding.h"
 #include "mem.h"
 
 /**
@@ -633,114 +634,13 @@ typedef struct {
     int isFirstElement, prettyPrint, indent;
 } WXJSONListEncodeTracker;
 
-/* Strings need a bit more support for encoding */
-static int _escapeJSONString(WXBuffer *buffer, char *str) {
-    char  escBuff[16], *block = str;
-    int l, len = strlen(str);
-    uint32_t uniChar;
-    unsigned char ch;
+/* Common method to wrap JSON string encoding with quotes */
+static uint8_t *_escapeJSONString(WXBuffer *buffer, char *str) {
+    if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return NULL;
+    if (WXJSON_EscapeString(buffer, str) == NULL) return NULL;
+    if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return NULL;
 
-    escBuff[0] = '\\';
-    if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return -1;
-    while (len > 0) {
-        ch = (unsigned char) *(str++);
-        len--;
-
-        if ((ch & 0x80) != 0) {
-            if ((l = (str - block) - 1) > 0) {
-                if (WXBuffer_Append(buffer, block, l, TRUE) == NULL) return -1;
-            }
-            if ((len < 1) || ((*str & 0xC0) != 0x80)) {
-                (void) strcpy(escBuff, "\\u001A");
-            } else {
-                if ((ch & 0xE0) == 0xE0) {
-                    if ((len < 2) || ((*(str + 1) & 0xC0) != 0x80)) {
-                        (void) strcpy(escBuff, "\\u001A");
-                    } else {
-                        if ((ch & 0xF0) == 0xF0) {
-                            /* TODO - support extended (non-BMP) Unicode */
-                            (void) strcpy(escBuff, "\\u001A");
-                        } else {
-                            /* Three-byte block */
-                            uniChar = (((uint32_t) ch) & 0x0F) << 12;
-                            uniChar |= (((uint32_t) *(str++)) & 0x3F) << 6;
-                            uniChar |= *(str++) & 0x3F;
-                            if (uniChar > 0xFFFF) {
-                                /* TODO - support extended (non-BMP) Unicode */
-                                (void) strcpy(escBuff, "\\u001A");
-                            } else {
-                                (void) sprintf(escBuff, "\\u%04X", uniChar);
-                            }
-                            len -= 2;
-                        }
-                    }
-                } else {
-                    /* Two-byte block */
-                    uniChar = (((uint32_t) ch) & 0x1F) << 6;
-                    uniChar |= *(str++) & 0x3F;
-                    (void) sprintf(escBuff, "\\u%04X", uniChar);
-                    len--;
-                }
-            }
-            if (WXBuffer_Append(buffer, escBuff, 6, TRUE) == NULL) return -1;
-            block = str;
-        } else if ((ch == '"') || (ch == '\\') || (ch == '/')) {
-            if ((l = (str - block) - 1) > 0) {
-                if (WXBuffer_Append(buffer, block, l, TRUE) == NULL) return -1;
-            }
-            escBuff[1] = ch;
-            if (WXBuffer_Append(buffer, escBuff, 2, TRUE) == NULL) return -1;
-            block = str;
-        } else if (ch < 0x20) {
-            if ((l = (str - block) - 1) > 0) {
-                if (WXBuffer_Append(buffer, block, l, TRUE) == NULL) return -1;
-            }
-            switch (ch) {
-                case '\b':
-                case '\f':
-                case '\n':
-                case '\r':
-                case '\t':
-                    if (ch == '\b') ch = 'b';
-                    else if (ch == '\f') ch = 'f';
-                    else if (ch == '\n') ch = 'n';
-                    else if (ch == '\r') ch = 'r';
-                    else if (ch == '\t') ch = 't';
-                    escBuff[1] = ch;
-                    if (WXBuffer_Append(buffer, escBuff, 2,
-                                        TRUE) == NULL) return -1;
-                    break;
-                default:
-                    (void) sprintf(escBuff, "\\u00%02X", ch);
-                    if (WXBuffer_Append(buffer, escBuff, 6,
-                                        TRUE) == NULL) return -1;
-                    break;
-            }
-            block = str;
-        } else {
-            /* Just a regular character, track as a block */
-        }
-    }
-    if ((l = (str - block)) > 0) {
-        if (WXBuffer_Append(buffer, block, l, TRUE) == NULL) return -1;
-    }
-    if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return -1;
-
-    return 0;
-}
-
-/* Convenience method to generate spaced indent for pretty printing */
-static int _WXJSONIndent(WXBuffer *buffer, int indent) {
-    static char *spaces = "                                        ";
-    int len;
-
-    indent *= 4;
-    while (indent > 0) {
-        len = (indent < 20) ? indent : 20;
-        if (WXBuffer_Append(buffer, spaces, len, TRUE) == NULL) return -1;
-        indent -= len;
-    }
-    return 0;
+    return buffer->buffer;
 }
 
 /* Forward declaration for nested looping */
@@ -761,9 +661,9 @@ static int _objectEncodeScanner(WXHashTable *table, void *key, void *object,
     trk->isFirstElement = FALSE;
 
     if (trk->prettyPrint) {
-        if (_WXJSONIndent(trk->buffer, trk->indent) < 0) return -1;
+        if (WXIndent(trk->buffer, trk->indent * 4) == NULL) return -1;
     }
-    if (_escapeJSONString(trk->buffer, (char *) key) < 0) return -1;
+    if (_escapeJSONString(trk->buffer, (char *) key) == NULL) return -1;
     if (trk->prettyPrint) {
         if (WXBuffer_Append(trk->buffer, ": ", 2, TRUE) == NULL) return -1;
     } else {
@@ -827,7 +727,7 @@ static int WXJSON_EncodeValue(WXBuffer *buffer, WXJSONValue *value,
                                 TRUE) == NULL) return -1;
             break;
         case WXJSONVALUE_STRING:
-            if (_escapeJSONString(buffer, value->value.sval) < 0) return -1;
+            if (_escapeJSONString(buffer, value->value.sval) == NULL) return -1;
             break;
         case WXJSONVALUE_OBJECT:
             if (WXBuffer_Append(buffer, "{", 1, TRUE) == NULL) return -1;
@@ -838,7 +738,7 @@ static int WXJSON_EncodeValue(WXBuffer *buffer, WXJSONValue *value,
                                &trk);
             if (prettyPrint && (value->value.oval.entryCount != 0)) {
                 if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return -1;
-                if (_WXJSONIndent(buffer, indent) < 0) return -1;
+                if (WXIndent(buffer, indent * 4) == NULL) return -1;
             }
             if (WXBuffer_Append(buffer, "}", 1, TRUE) == NULL) return -1;
             break;
