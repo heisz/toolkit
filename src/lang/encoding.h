@@ -50,14 +50,4 @@ uint8_t *WXML_EscapeAttribute(WXBuffer *buffer, char *str, int len);
  */
 uint8_t *WXML_EscapeContent(WXBuffer *buffer, char *str, int len);
 
-/**
- * Escape unsafe character sequences for XML CDATA inclusion.
- *
- * @param buffer Buffer to escape the provided text onto the end of.
- * @param str Text to be escaped.
- * @param len Length of text to escape, -1 for string length.
- * @return Pointer to the buffer contents or NULL on memory error.
- */
-uint8_t *WXML_EscapeCData(WXBuffer *buffer, char *str, int len);
-
 #endif
