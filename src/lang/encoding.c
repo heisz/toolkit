@@ -35,15 +35,17 @@ uint8_t *WXIndent(WXBuffer *buffer, int indent) {
  * Escape unsafe JSON character sequences in the provided string.
  *
  * @param buffer Buffer to escape the provided text onto the end of.
- * @param str Text to be encoded.
+ * @param str Text to be escaped.
+ * @param len Length of text to escape, -1 for string length.
  * @return Pointer to the buffer contents or NULL on memory error.
  */
-uint8_t *WXJSON_EscapeString(WXBuffer *buffer, char *str) {
+uint8_t *WXJSON_EscapeString(WXBuffer *buffer, char *str, int len) {
     char  escBuff[16], *blk = str;
-    int l, len = strlen(str);
     uint32_t uniChar;
     unsigned char ch;
+    int l;
 
+    if (len < 0) len = strlen(str);
     escBuff[0] = '\\';
     while (len > 0) {
         ch = (unsigned char) *(str++);
@@ -119,6 +121,117 @@ uint8_t *WXJSON_EscapeString(WXBuffer *buffer, char *str) {
                                         TRUE) == NULL) return NULL;
                     break;
             }
+            blk = str;
+        } else {
+            /* Just a regular character, track as a block */
+        }
+    }
+    if ((l = (str - blk)) > 0) {
+        if (WXBuffer_Append(buffer, blk, l, TRUE) == NULL) return NULL;
+    }
+
+    return buffer->buffer;
+}
+
+/* For performance/simplicity, use a character mapping table and fn */
+#define ESCAPE_ATTR 1
+#define ESCAPE_CONTENT 2
+
+/* Follow best practice, always escape <&>, escape '" in attributes */
+static uint8_t xmlEscFlags[] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 1, 0, 0, 0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 3, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
+
+static uint8_t *xmlEnc(WXBuffer *buffer, unsigned char ch) {
+    switch (ch) {
+        case '&':
+            return WXBuffer_Append(buffer, "&amp;", 5, TRUE);
+        case '<':
+            return WXBuffer_Append(buffer, "&lt;", 4, TRUE);
+        case '>':
+            return WXBuffer_Append(buffer, "&gt;", 4, TRUE);
+        case '"':
+            return WXBuffer_Append(buffer, "&quot;", 6, TRUE);
+        case '\'':
+            return WXBuffer_Append(buffer, "&apos;", 6, TRUE);
+    }
+
+    return buffer->buffer;
+}
+
+/**
+ * Escape unsafe character sequences for XML attribute value inclusion.
+ *
+ * @param buffer Buffer to escape the provided text onto the end of.
+ * @param str Text to be escaped.
+ * @param len Length of text to escape, -1 for string length.
+ * @return Pointer to the buffer contents or NULL on memory error.
+ */
+uint8_t *WXML_EscapeAttribute(WXBuffer *buffer, char *str, int len) {
+    unsigned char ch;
+    char *blk = str;
+    int l;
+
+    if (len < 0) len = strlen(str);
+    while (len > 0) {
+        ch = (unsigned char) *(str++);
+        len--;
+
+        if (xmlEscFlags[ch] & ESCAPE_ATTR) {
+            if ((l = (str - blk) - 1) > 0) {
+                if (WXBuffer_Append(buffer, blk, l, TRUE) == NULL) return NULL;
+            }
+            if (xmlEnc(buffer, ch) == NULL) return NULL;
+            blk = str;
+        } else {
+            /* Just a regular character, track as a block */
+        }
+    }
+    if ((l = (str - blk)) > 0) {
+        if (WXBuffer_Append(buffer, blk, l, TRUE) == NULL) return NULL;
+    }
+
+    return buffer->buffer;
+}
+
+/**
+ * Escape unsafe character sequences for XML content inclusion.
+ *
+ * @param buffer Buffer to escape the provided text onto the end of.
+ * @param str Text to be escaped.
+ * @param len Length of text to escape, -1 for string length.
+ * @return Pointer to the buffer contents or NULL on memory error.
+ */
+uint8_t *WXML_EscapeContent(WXBuffer *buffer, char *str, int len) {
+    unsigned char ch;
+    char *blk = str;
+    int l;
+
+    if (len < 0) len = strlen(str);
+    while (len > 0) {
+        ch = (unsigned char) *(str++);
+        len--;
+
+        if (xmlEscFlags[ch] & ESCAPE_CONTENT) {
+            if ((l = (str - blk) - 1) > 0) {
+                if (WXBuffer_Append(buffer, blk, l, TRUE) == NULL) return NULL;
+            }
+            if (xmlEnc(buffer, ch) == NULL) return NULL;
             blk = str;
         } else {
             /* Just a regular character, track as a block */

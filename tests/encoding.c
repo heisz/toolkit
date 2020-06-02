@@ -19,14 +19,14 @@ int main(int argc, char **argv) {
 
     /* JSON */
     buffer.length = 0;
-    if ((WXJSON_EscapeString(&buffer, "abc") == NULL) ||
+    if ((WXJSON_EscapeString(&buffer, "abc", 3) == NULL) ||
             (buffer.length != 3) ||
             (strncmp((char *) buffer.buffer, "abc", 3) != 0)) {
         (void) fprintf(stderr, "Incorrect JSON encoding of standard text\n");
         exit(1);
     }
     buffer.length = 0;
-    if ((WXJSON_EscapeString(&buffer, "\"\\/\b\f\n\r\t") == NULL) ||
+    if ((WXJSON_EscapeString(&buffer, "\"\\/\b\f\n\r\t", -1) == NULL) ||
             (buffer.length != 16) ||
             (strncmp((char *) buffer.buffer,
                       "\\\"\\\\\\/\\b\\f\\n\\r\\t", 16) != 0)) {
@@ -34,11 +34,30 @@ int main(int argc, char **argv) {
         exit(1);
     }
     buffer.length = 0;
-    if ((WXJSON_EscapeString(&buffer, "\x07\xD1\xB2\xE4\xB8\x9D") == NULL) ||
+    if ((WXJSON_EscapeString(&buffer,
+                             "\x07\xD1\xB2\xE4\xB8\x9D", -1) == NULL) ||
             (buffer.length != 18) ||
             (strncmp((char *) buffer.buffer,
                       "\\u0007\\u0472\\u4E1D", 18) != 0)) {
         (void) fprintf(stderr, "Incorrect JSON encoding of unicode text\n");
+        exit(1);
+    }
+
+    /* XML */
+    buffer.length = 0;
+    if ((WXML_EscapeAttribute(&buffer, "a<b&c>d'e\"f", -1) == NULL) ||
+            (buffer.length != 31) ||
+            (strncmp((char *) buffer.buffer,
+                      "a&lt;b&amp;c&gt;d&apos;e&quot;f", 31) != 0)) {
+        (void) fprintf(stderr, "Incorrect XML encoding of attribute text\n");
+        exit(1);
+    }
+    buffer.length = 0;
+    if ((WXML_EscapeContent(&buffer, "a<b&c>d'e\"f", -1) == NULL) ||
+            (buffer.length != 31) ||
+            (strncmp((char *) buffer.buffer,
+                      "a&lt;b&amp;c&gt;d'e\"f", 31) != 0)) {
+        (void) fprintf(stderr, "Incorrect XML encoding of attribute text\n");
         exit(1);
     }
 }

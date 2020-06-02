@@ -637,7 +637,7 @@ typedef struct {
 /* Common method to wrap JSON string encoding with quotes */
 static uint8_t *_escapeJSONString(WXBuffer *buffer, char *str) {
     if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return NULL;
-    if (WXJSON_EscapeString(buffer, str) == NULL) return NULL;
+    if (WXJSON_EscapeString(buffer, str, -1) == NULL) return NULL;
     if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return NULL;
 
     return buffer->buffer;

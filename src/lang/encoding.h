@@ -24,9 +24,40 @@ uint8_t *WXIndent(WXBuffer *buffer, int indent);
  * Escape unsafe JSON character sequences in the provided string.
  *
  * @param buffer Buffer to escape the provided text onto the end of.
- * @param str Text to be encoded.
+ * @param str Text to be escaped.
+ * @param len Length of text to escape, -1 for string length.
  * @return Pointer to the buffer contents or NULL on memory error.
  */
-uint8_t *WXJSON_EscapeString(WXBuffer *buffer, char *str);
+uint8_t *WXJSON_EscapeString(WXBuffer *buffer, char *str, int len);
+
+/**
+ * Escape unsafe character sequences for XML attribute value inclusion.
+ *
+ * @param buffer Buffer to escape the provided text onto the end of.
+ * @param str Text to be escaped.
+ * @param len Length of text to escape, -1 for string length.
+ * @return Pointer to the buffer contents or NULL on memory error.
+ */
+uint8_t *WXML_EscapeAttribute(WXBuffer *buffer, char *str, int len);
+
+/**
+ * Escape unsafe character sequences for XML content inclusion.
+ *
+ * @param buffer Buffer to escape the provided text onto the end of.
+ * @param str Text to be escaped.
+ * @param len Length of text to escape, -1 for string length.
+ * @return Pointer to the buffer contents or NULL on memory error.
+ */
+uint8_t *WXML_EscapeContent(WXBuffer *buffer, char *str, int len);
+
+/**
+ * Escape unsafe character sequences for XML CDATA inclusion.
+ *
+ * @param buffer Buffer to escape the provided text onto the end of.
+ * @param str Text to be escaped.
+ * @param len Length of text to escape, -1 for string length.
+ * @return Pointer to the buffer contents or NULL on memory error.
+ */
+uint8_t *WXML_EscapeCData(WXBuffer *buffer, char *str, int len);
 
 #endif
