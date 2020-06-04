@@ -64,6 +64,7 @@ db_LDFLAGS = -static
 
 xml_SOURCES = xml.c
 xml_LDADD = $(top_builddir)/src/lang/xml.lo \
+            $(top_builddir)/src/lang/encoding.lo \
             $(top_builddir)/src/utility/buffer.lo \
             $(top_builddir)/src/utility/mem.lo \
             -ldl -lm

@@ -39,7 +39,7 @@ static char *bigXML =
     "    <empty attr \t />\n"
     "    <notsoempty sqattr = '&lt;&amp;yo&gt;' "
                     "ns:dqattr=\"\">"
-            "&apos;&#36;content&#x0025;&quot;"
+            "&apos;&#36;content&#x0025;&quot;&lt;"
         "</notsoempty>\n"
     "</ns:root>\n";
 
@@ -134,7 +134,7 @@ int main(int argc, char **argv) {
     TEST_TOKEN(WXMLTK_ATTR_EQ, "Double quote attr eq");
     TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "Double quote attr val", "");
     TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Full tag start close");
-    TEST_STR_TOKEN(WXMLTK_CONTENT, "Full tag content", "'$content%\"");
+    TEST_STR_TOKEN(WXMLTK_CONTENT, "Full tag content", "'$content%\"<");
     TEST_TOKEN(WXMLTK_CLOSE_ELMNT_TAG_START, "Full tag end");
     TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Full tag name", "notsoempty");
     TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Full tag end close");
@@ -269,10 +269,54 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    if (strcmp(child->content, "'$content%\"") != 0) {
+    if (strcmp(child->content, "'$content%\"<") != 0) {
         (void) fprintf(stderr, "Incorrect content for non-empty element\n");
         exit(1);
     }
 
+    /* Check some cases */
+    WXBuffer_Init(&buffer, 0);
+    WXML_Encode(&buffer, doc->children, FALSE);
+    if (strcmp((char *) buffer.buffer, "<empty attr/>") != 0) {
+        (void) fprintf(stderr, "Incorrect encoding of empty element/attr\n");
+        exit(1);
+    }
+
+    WXBuffer_Empty(&buffer);
+    WXML_Encode(&buffer, doc->children->next, FALSE);
+    if (strstr((char *) buffer.buffer, "sqattr=\"&lt;&amp;yo&gt;\"") == NULL) {
+        (void) fprintf(stderr, "Incorrect encoding of attr characters\n");
+        exit(1);
+    }
+    if (strstr((char *) buffer.buffer, "ns:dqattr=\"\"") == NULL) {
+        (void) fprintf(stderr, "Incorrect encoding of ns attr\n");
+        exit(1);
+    }
+    if (strstr((char *) buffer.buffer, ">'$content%\"&lt;</") == NULL) {
+        (void) fprintf(stderr, "Incorrect encoding of content\n");
+        exit(1);
+    }
+
+    /* Big pretty and compact for visual compare */
+    WXML_Encode(&buffer, doc, TRUE);
+    (void) fprintf(stdout, "\n%s\n", buffer.buffer);
+    WXBuffer_Empty(&buffer);
+    WXML_Encode(&buffer, doc, FALSE);
+    (void) fprintf(stdout, "\n%s\n", buffer.buffer);
     WXML_Destroy(doc);
+
+    /* Visual check for deeply nested layout */
+    WXBuffer_Empty(&buffer);
+    doc = WXML_Decode("<one><two><three>a</three><three>b</three></two></one>",
+                      errorMsg, sizeof(errorMsg));
+    if (doc == NULL) {
+        (void) fprintf(stderr, "Failed to parse main document: %s\n", errorMsg);
+        exit(1);
+    }
+    WXML_Encode(&buffer, doc, TRUE);
+    (void) fprintf(stdout, "\n%s\n", buffer.buffer);
+
+    /* Clean up on aisle 3! */
+    WXML_Destroy(doc);
+    WXBuffer_Destroy(&buffer);
 }

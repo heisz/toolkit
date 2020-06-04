@@ -18,7 +18,7 @@
  * @param indent Number of spaces to indent by.
  * @return Pointer to the buffer contents or NULL on memory error.
  */
-uint8_t *WXIndent(WXBuffer *buffer, int indent);
+uint8_t *WXIndent(WXBuffer *buffer, unsigned int indent);
 
 /**
  * Escape unsafe JSON character sequences in the provided string.

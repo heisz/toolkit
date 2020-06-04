@@ -6,6 +6,7 @@
  * this software.
  */
 #include "xmlint.h"
+#include "encoding.h"
 #include <ctype.h>
 
 /* The original MiniXML was all regex, then I learned about lexical parsing */
@@ -408,8 +409,8 @@ WXMLTokenType WXMLLexerNext(WXMLLexer *lexer, char *errorMsg, int errorMsgLen) {
                 lexer->inElementTag = lexer->ignoreWhitespace = FALSE;
                 lexer->offset = ptr - lexer->content;
                 return (lexer->lastToken.type = WXMLTK_ELMNT_TAG_END);
-            } else if (xmlIdFlags[ch] & WXML_ID_START) {
-                while (xmlIdFlags[*ptr] & WXML_ID_CHAR) ptr++;
+            } else if (xmlIdFlags[(int) ch] & WXML_ID_START) {
+                while (xmlIdFlags[(int) *ptr] & WXML_ID_CHAR) ptr++;
                 lexer->offset = ptr - lexer->content;
                 return _allocTextToken(lexer, WXMLTK_IDENTIFIER, start,
                                        ptr - start, FALSE, errorMsg,
@@ -517,7 +518,7 @@ static WXMLNamespace *_assignNS(WXMLElement *elmnt, char *name,
  * @return The document root instance, or NULL on parsing or memory failure.
  */
 WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen) {
-    WXMLElement *retval = NULL, *current = NULL, *wkg;
+    WXMLElement *retval = NULL, *current = NULL;
     WXMLNamespace *ns, *dfltNs;
     WXMLAttribute *attr = NULL;
     unsigned int lineNo;
@@ -841,6 +842,141 @@ memfail:
     return NULL;
 }
 
+/* Internal recursion method for encoding */
+static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
+                            int prettyPrint, int indent) {
+    WXMLNamespace *ns = elmnt->namespaceSet;
+    WXMLAttribute *attr = elmnt->attributes;
+    WXMLElement *child = elmnt->children;
+    int l, isFirst = TRUE, leader;
+    char *start, *end;
+
+    leader = 4 * indent + 1;
+    if (WXBuffer_Append(buffer, "<", 1, TRUE) == NULL) return NULL;
+    if ((elmnt->namespace != NULL) && (*(elmnt->namespace->prefix) != '\0')) {
+        if (WXBuffer_Append(buffer, elmnt->namespace->prefix,
+                            l = strlen(elmnt->namespace->prefix),
+                            TRUE) == NULL) return NULL;
+        if (WXBuffer_Append(buffer, ":", 1, TRUE) == NULL) return NULL;
+        leader += l + 1;
+    }
+    if (WXBuffer_Append(buffer, elmnt->name, l = strlen(elmnt->name),
+                        TRUE) == NULL) return NULL;
+    leader += l;
+
+    /* Owned namespaces appear first */
+    while (ns != NULL) {
+        if (ns->origin != elmnt) break;
+
+        if ((prettyPrint) && (!isFirst)) {
+            if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
+            if (WXIndent(buffer, leader) == NULL) return NULL;
+        }
+
+        if (WXBuffer_Append(buffer, " xmlns", 6, TRUE) == NULL) return NULL;
+        if (*(ns->prefix) != '\0') {
+            if (WXBuffer_Append(buffer, ":", 1, TRUE) == NULL) return NULL;
+            if (WXBuffer_Append(buffer, ns->prefix, strlen(ns->prefix),
+                                TRUE) == NULL) return NULL;
+        }
+
+        if (WXBuffer_Append(buffer, "=\"", 2, TRUE) == NULL) return NULL;
+        if (WXML_EscapeAttribute(buffer, ns->href,
+                                 strlen(ns->href)) == NULL) return NULL;
+        if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return NULL;
+
+        isFirst = FALSE;
+        ns = ns->next;
+    }
+
+    /* Then attributes */
+    while (attr != NULL) {
+        if ((prettyPrint) && (!isFirst)) {
+            if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
+            if (WXIndent(buffer, leader) == NULL) return NULL;
+        }
+
+        if (WXBuffer_Append(buffer, " ", 1, TRUE) == NULL) return NULL;
+        if ((attr->namespace != NULL) && (*(attr->namespace->prefix) != '\0')) {
+            if (WXBuffer_Append(buffer, attr->namespace->prefix,
+                                strlen(attr->namespace->prefix),
+                                TRUE) == NULL) return NULL;
+            if (WXBuffer_Append(buffer, ":", 1, TRUE) == NULL) return NULL;
+        }
+        if (WXBuffer_Append(buffer, attr->name, strlen(attr->name),
+                            TRUE) == NULL) return NULL;
+
+        if (attr->value != NULL) {
+            if (WXBuffer_Append(buffer, "=\"", 2, TRUE) == NULL) return NULL;
+            if (WXML_EscapeAttribute(buffer, attr->value,
+                                     strlen(attr->value)) == NULL) return NULL;
+            if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return NULL;
+        }
+
+        isFirst = FALSE;
+        attr = attr->next;
+    }
+
+    /* Immediate closure if no content */
+    if ((elmnt->children == NULL) &&
+                 ((elmnt->content == NULL) || (*(elmnt->content) == '\0'))) {
+        if (WXBuffer_Append(buffer, "/>", 2, TRUE) == NULL) return NULL;
+        return buffer->buffer;
+    } else {
+        if (WXBuffer_Append(buffer, ">", 1, TRUE) == NULL) return NULL;
+    }
+
+    /* Otherwise, children, content (encoded) and closing tag */
+    while (child != NULL) {
+        if (prettyPrint) {
+            if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
+            if (WXIndent(buffer, (indent + 1) * 4) == NULL) return NULL;
+        }
+
+        if (_encodeElement(buffer, child, prettyPrint,
+                           indent + 1) == NULL) return NULL;
+
+        child = child->next;
+    }
+
+    if (prettyPrint && (elmnt->children != NULL)) {
+        /* At this point, nested content is not identical, reformat it */
+        if (elmnt->content != NULL) {
+            start = elmnt->content;
+            while (isspace(*start)) start++;
+            if (*start != '\0') {
+                end = start + strlen(start) - 1;
+                while (isspace(*end)) end--;
+                if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
+                if (WXIndent(buffer, (indent + 1) * 4) == NULL) return NULL;
+                if (WXML_EscapeContent(buffer, start,
+                                       end - start + 1) == NULL) return NULL;
+            }
+        }
+
+        if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
+        if (WXIndent(buffer, indent * 4) == NULL) return NULL;
+    } else {
+        if (elmnt->content != NULL) {
+            if (WXML_EscapeContent(buffer, elmnt->content,
+                                   strlen(elmnt->content)) == NULL) return NULL;
+        }
+    }
+
+    if (WXBuffer_Append(buffer, "</", 2, TRUE) == NULL) return NULL;
+    if ((elmnt->namespace != NULL) && (*(elmnt->namespace->prefix) != '\0')) {
+        if (WXBuffer_Append(buffer, elmnt->namespace->prefix,
+                            strlen(elmnt->namespace->prefix),
+                            TRUE) == NULL) return NULL;
+        if (WXBuffer_Append(buffer, ":", 1, TRUE) == NULL) return NULL;
+    }
+    if (WXBuffer_Append(buffer, elmnt->name, strlen(elmnt->name),
+                        TRUE) == NULL) return NULL;
+    if (WXBuffer_Append(buffer, ">", 1, TRUE) == NULL) return NULL;
+
+    return buffer->buffer;
+}
+
 /**
  * Converse to the above, translate the XML document to text format.
  *
@@ -852,8 +988,9 @@ memfail:
  *         or NULL if memory allocation failure occurred.
  */
 char *WXML_Encode(WXBuffer *buffer, WXMLElement *root, int prettyPrint) {
-
-    return NULL;
+    if (_encodeElement(buffer, root, prettyPrint, 0) == NULL) return NULL;
+    if (WXBuffer_Append(buffer, "\0", 1, TRUE) == NULL) return NULL;
+    return buffer->buffer;
 }
 
 /**

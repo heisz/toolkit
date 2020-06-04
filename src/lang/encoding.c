@@ -15,12 +15,12 @@
  * @param indent Number of spaces to indent by.
  * @return Pointer to the buffer contents or NULL on memory error.
  */
-uint8_t *WXIndent(WXBuffer *buffer, int indent) {
+uint8_t *WXIndent(WXBuffer *buffer, unsigned int indent) {
     static char *spaces = "                                        "
                           "                                        "
                           "                                        "
                           "                                        ";
-    int len;
+    unsigned int len;
 
     while (indent > 0) {
         len = (indent < sizeof(spaces) - 1) ? indent : sizeof(spaces) - 1;
