@@ -10,6 +10,177 @@
 
 /* The original MiniXML was all regex, then I learned about lexical parsing */
 
+/* These appear up front so the parser can use them... */
+
+/* Wrap with duplication and NULL handling */
+static char *_xmlStrDup(const char *val) {
+    char *retval;
+
+    if (val == NULL) return NULL;
+    retval = (char *) WXMalloc(strlen(val) + 1);
+    if (retval != NULL) (void) strcpy(retval, val);
+    return retval;
+}
+
+/**
+ * Utility method for allocating XML element instances, for manually creating
+ * a DOM tree.
+ *
+ * @param parent The parent element, NULL for allocating a root element.
+ * @param name The name of the element, may be duplicated based on flag.
+ * @param namespace Reference to the namespace associated to this element, if
+ *                  applicable.  If the origin of the provided namespace is
+ *                  NULL (locally allocated), a namespace is created for this
+ *                  element instead, obeying the duplicate flag.
+ * @param content Optional content for this element, may be duplicated based
+ *                on flag.
+ * @param duplicate If FALSE, *all* provided information is allocated and
+ *                  belongs to the element.  If TRUE, name, content and
+ *                  namespace details are duplicated.
+ * @return The element instance or NULL on memory allocation failure.
+ */
+WXMLElement *WXML_AllocateElement(WXMLElement *parent, const char *name,
+                                  WXMLNamespace *ns, const char *content,
+                                  int duplicate) {
+    WXMLElement *elmnt = (WXMLElement *) WXCalloc(sizeof(WXMLElement));
+    if (elmnt == NULL) return NULL;
+
+    if (!duplicate) {
+        elmnt->name = (char *) name;
+        elmnt->content = (char *) content;
+    } else {
+        elmnt->name = _xmlStrDup(name);
+        if (content != NULL) elmnt->content = _xmlStrDup(content);
+        if ((elmnt->name == NULL) ||
+                ((content != NULL) && (elmnt->content == NULL))) {
+            if (elmnt->content != NULL) WXFree(elmnt->content);
+            if (elmnt->name != NULL) WXFree(elmnt->name);
+            WXFree(elmnt);
+            return NULL;
+        }
+    }
+
+    /* Create the local element namespace if unassociated */
+    if (ns != NULL) {
+        if (ns->origin == NULL) {
+            elmnt->namespace = WXML_AllocateNamespace(elmnt, ns->prefix,
+                                                      ns->href, duplicate);
+            if (elmnt->namespace == NULL) {
+                if (elmnt->content != NULL) WXFree(elmnt->content);
+                if (elmnt->name != NULL) WXFree(elmnt->name);
+                WXFree(elmnt);
+                return NULL;
+            }
+        } else {
+            elmnt->namespace = ns;
+        }
+    }
+
+    /* Connect to parent/child list, watch namespace inheritance with local */
+    elmnt->parent = parent;
+    if (parent != NULL) {
+        if (parent->children == NULL) {
+            parent->children = parent->lastChild = elmnt;
+        } else {
+            parent->lastChild->next = elmnt;
+            parent->lastChild = elmnt;
+        }
+
+        if ((ns != NULL) && (ns->origin == NULL)) {
+            elmnt->namespaceSet->next = parent->namespaceSet;
+        } else {
+            elmnt->namespaceSet = parent->namespaceSet;
+        }
+    }
+
+    return elmnt;
+}
+
+/**
+ * Utility method for allocating XML namespace instances, for manually creating
+ * a DOM tree.
+ *
+ * @param origin The element to which this namespace is associated (scope).
+ * @param prefix The prefix identifier for the namespace, may be duplicated.
+ * @param href The URI associated to the namespace, may be duplicated.
+ * @param duplicate If FALSE, *all* provided information is allocated and
+ *                  belongs to the namespace.  If TRUE, prefix and href details
+ *                  are duplicated.
+ * @return The namespace instance or NULL on memory allocation failure.
+ */
+WXMLNamespace *WXML_AllocateNamespace(WXMLElement *origin, const char *prefix,
+                                      const char *href, int duplicate) {
+    WXMLNamespace *ns = (WXMLNamespace *) WXCalloc(sizeof(WXMLNamespace));
+    if (ns == NULL) return NULL;
+
+    if (!duplicate) {
+        ns->prefix = (char *) prefix;
+        ns->href = (char *) href;
+    } else {
+        ns->prefix = _xmlStrDup(prefix);
+        ns->href = _xmlStrDup(href);
+        if ((ns->prefix == NULL) || (ns->href == NULL)) {
+            if (ns->href != NULL) WXFree(ns->href);
+            if (ns->prefix != NULL) WXFree(ns->prefix);
+            WXFree(ns);
+            return NULL;
+        }
+    }
+
+    /* Here, namespace is injected to head to handle inheritance */
+    ns->origin = origin;
+    ns->next = origin->namespaceSet;
+    origin->namespaceSet = ns;
+
+    return ns;
+}
+
+/**
+ * Utility method for allocating XML attribute instances, for manually creating
+ * a DOM tree.
+ *
+ * @param elmnt The element to which this attribute is attached.
+ * @param name The name/identifier of the attribute, may be duplicated
+ * @param namespace Reference to the namespace associated to this attribute, if
+ *                  applicable.  Pay attention to the origin/scoping of the
+ *                  namespace and related elements.
+ * @param value The optional associated attribute value, may be duplicated.
+ * @param duplicate If FALSE, *all* provided information is allocated and
+ *                  belongs to the namespace.  If TRUE, name and value details
+ *                  are duplicated.
+ * @return The attribute instance or NULL on memory allocation failure.
+ */
+WXMLAttribute *WXML_AllocateAttribute(WXMLElement *elmnt, const char *name,
+                                      WXMLNamespace *namespace, const char *val,
+                                      int duplicate) {
+    WXMLAttribute *attr = (WXMLAttribute *) WXCalloc(sizeof(WXMLAttribute));
+    if (attr == NULL) return NULL;
+
+    if (!duplicate) {
+        attr->name = (char *) name;
+        attr->value = (char *) val;
+    } else {
+        attr->name = _xmlStrDup(name);
+        if (val != NULL) attr->value = _xmlStrDup(val);
+        if ((attr->name == NULL) || ((val != NULL) && (attr->value == NULL))) {
+            if (attr->value != NULL) WXFree(attr->value);
+            if (attr->name != NULL) WXFree(attr->name);
+            WXFree(attr);
+            return NULL;
+        }
+    }
+
+    /* Just initialize or append to list */
+    if (elmnt->attributes == NULL) {
+        elmnt->attributes = elmnt->lastAttribute = attr;
+    } else {
+        elmnt->lastAttribute->next = attr;
+        elmnt->lastAttribute = attr;
+    }
+
+    return attr;
+}
+
 static char *_memFail = "Internal error: memory allocation failure";
 
 /**
@@ -323,6 +494,7 @@ WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen) {
     WXMLNamespace *ns;
     WXMLLexer lexer;
     char *nm, *tmp;
+    int offset;
 
     /* Parse away, use stack instead of recursive descent */
     *errorMsg = '\0';
@@ -370,38 +542,22 @@ WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen) {
                 break;
             }
 
-            /* At this point, we can create the element in the stack */
-            wkg = (WXMLElement *) WXCalloc(sizeof(WXMLElement));
-            if (wkg == NULL) goto memfail;
-            wkg->name = lexer.lastToken.val;
-            lexer.lastToken.val = NULL;
-
-            if (current != NULL) {
-                /* Work into the chain */
-                if (current->children == NULL) {
-                    current->children = current->lastChild = wkg;
-                } else {
-                    current->lastChild->next = wkg;
-                    current->lastChild = wkg;
-                }
-                wkg->parent = current;
-                /* Inherits namespace from parent */
-                wkg->namespaceSet = current->namespaceSet;
-                current = wkg;
-            } else {
-                /* This is the root node, but there can only be one! */
-                if (retval != NULL) {
-                    (void) snprintf(errorMsg, errorMsgLen,
-                                    "Syntax error: Multiple root elements are "
-                                    "defined (line %d)", lexer.lineNumber);
-                    WXML_Destroy(retval);
-                    WXML_Destroy(wkg);
-                    retval = current = NULL;
-                    break;
-                } else {
-                    retval = current = wkg;
-                }
+            /* There can only be one root */
+             if ((current == NULL) && (retval != NULL)) {
+                 (void) snprintf(errorMsg, errorMsgLen,
+                                 "Syntax error: Multiple root elements are "
+                                 "defined (line %d)", lexer.lineNumber);
+                 WXML_Destroy(retval);
+                 retval = current = NULL;
+                 break;
             }
+
+            /* At this point, we can create the element in the stack */
+            current = WXML_AllocateElement(current, lexer.lastToken.val,
+                                           NULL, NULL, FALSE);
+            if (current == NULL) goto memfail;
+            lexer.lastToken.val = NULL;
+            if (retval == NULL) retval = current;
 
             /* Process the remaining tag elements (attributes) */
             lineNo = lexer.lineNumber;
@@ -429,7 +585,7 @@ WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen) {
                         if ((WXMLLexerNext(&lexer, errorMsg,
                                            errorMsgLen) != WXMLTK_ATTR_EQ) ||
                               (WXMLLexerNext(&lexer, errorMsg,
-                                             errorMsgLen) != WXMLTK_CONTENT)) {
+                                           errorMsgLen) != WXMLTK_ATTR_VALUE)) {
                             if (lexer.lastToken.type != WXMLTK_ERROR) {
                                 (void) snprintf(errorMsg, errorMsgLen,
                                                 "Syntax error: namespaces "
@@ -443,28 +599,21 @@ WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen) {
                             break;
                         }
                         
-                        /* Hook it all together, local precedes inherited */
-                        ns = (WXMLNamespace *) WXCalloc(sizeof(WXMLNamespace));
+                        /* Hook it all together, remove identifier marker */
+                        offset = (nm[5] == ':') ? 6 : 5;
+                        (void) memmove(nm, nm + offset,
+                                       strlen(nm + offset) + 1);
+                        ns = WXML_AllocateNamespace(current, nm,
+                                                    lexer.lastToken.val, FALSE);
                         if (ns == NULL) goto memfail;
-                        ns->prefix = nm;
-                        /* TODO - truncate prefix */
-                        ns->href = lexer.lastToken.val;
                         lexer.lastToken.val = NULL;
-                        ns->origin = current;
-                        ns->next = current->namespaceSet;
-                        current->namespaceSet = ns;
                     } else {
                         /* Create the attribute, empty shell ready for assign */
-                        attr = (WXMLAttribute *)WXCalloc(sizeof(WXMLAttribute));
+                        attr = WXML_AllocateAttribute(current,
+                                                      lexer.lastToken.val,
+                                                      NULL, NULL, FALSE);
                         if (attr == NULL) goto memfail;
-                        attr->name = lexer.lastToken.val;
                         lexer.lastToken.val = NULL;
-                        if (current->attributes == NULL) {
-                            current->attributes = current->lastAttribute = attr;
-                        } else {
-                            current->lastAttribute->next = attr;
-                            current->lastAttribute = attr;
-                        }
                     }
                 } else if (type == WXMLTK_ATTR_EQ) {
                     /* Only assignable from an attribute definition */
@@ -680,7 +829,11 @@ void WXML_Destroy(WXMLElement *root) {
             WXFree(ns->prefix);
             WXFree(ns->href);
             WXFree(ns);
+        } else {
+            /* Exit as soon as we leave my list */
+            break;
         }
+        ns = nextNs;
     }
 
     /* Finally, discard associated details and the node itself */

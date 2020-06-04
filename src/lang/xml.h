@@ -78,6 +78,61 @@ typedef struct WXMLElement {
 } WXMLElement;
 
 /**
+ * Utility method for allocating XML element instances, for manually creating
+ * a DOM tree.
+ *
+ * @param parent The parent element, NULL for allocating a root element.
+ * @param name The name of the element, may be duplicated based on flag.
+ * @param namespace Reference to the namespace associated to this element, if
+ *                  applicable.  If the origin of the provided namespace is
+ *                  NULL (locally allocated), a namespace is created for this
+ *                  element instead, obeying the duplicate flag.
+ * @param content Optional content for this element, may be duplicated based
+ *                on flag.
+ * @param duplicate If FALSE, *all* provided information is allocated and
+ *                  belongs to the element.  If TRUE, name, content and 
+ *                  namespace details are duplicated.
+ * @return The element instance or NULL on memory allocation failure.
+ */
+WXMLElement *WXML_AllocateElement(WXMLElement *parent, const char *name,
+                                  WXMLNamespace *namespace, const char *content,
+                                  int duplicate);
+
+/**
+ * Utility method for allocating XML namespace instances, for manually creating
+ * a DOM tree.
+ *
+ * @param origin The element to which this namespace is associated (scope).
+ * @param prefix The prefix identifier for the namespace, may be duplicated.
+ * @param href The URI associated to the namespace, may be duplicated.
+ * @param duplicate If FALSE, *all* provided information is allocated and
+ *                  belongs to the namespace.  If TRUE, prefix and href details
+ *                  are duplicated.
+ * @return The namespace instance or NULL on memory allocation failure.
+ */
+WXMLNamespace *WXML_AllocateNamespace(WXMLElement *origin, const char *prefix,
+                                      const char *href, int duplicate);
+
+/**
+ * Utility method for allocating XML attribute instances, for manually creating
+ * a DOM tree.
+ *
+ * @param elmnt The element to which this attribute is attached.
+ * @param name The name/identifier of the attribute, may be duplicated
+ * @param namespace Reference to the namespace associated to this attribute, if
+ *                  applicable.  Pay attention to the origin/scoping of the
+ *                  namespace and related elements.
+ * @param value The optional associated attribute value, may be duplicated.
+ * @param duplicate If FALSE, *all* provided information is allocated and
+ *                  belongs to the namespace.  If TRUE, name and value details
+ *                  are duplicated.
+ * @return The attribute instance or NULL on memory allocation failure.
+ */
+WXMLAttribute *WXML_AllocateAttribute(WXMLElement *elmnt, const char *name,
+                                      WXMLNamespace *namespace, const char *val,
+                                      int duplicate);
+
+/**
  * Parse/decode XML text, returning a corresponding document representation.
  *
  * @param content The XML document/content to be parsed.

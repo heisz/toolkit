@@ -35,13 +35,13 @@ static char *bigXML =
     "<?xml version=\"1.0\"?>\n"
     "<!-- This is a pretty big bit of XML to test the lexer -->\n"
     "<!DOCTYPE test SYSTEM \"test.dtd\">\n"
-    "<root>mixed text\n"
+    "<ns:root xmlns:ns='test:xml'>mixed text\n"
     "    <empty attr \t />\n"
     "    <notsoempty sqattr = '&lt;&amp;yo&gt;' "
                     "ns:dqattr=\"\">"
             "&apos;&#36;content&#x0025;&quot;"
         "</notsoempty>\n"
-    "</root>\n";
+    "</ns:root>\n";
 
 static struct LexErrorDef {
      char *content, *exp;
@@ -108,7 +108,10 @@ int main(int argc, char **argv) {
     lex.ignoreWhitespace = TRUE;
 
     TEST_TOKEN(WXMLTK_ELMNT_TAG_START, "Root tag start");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root tag name", "root");
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root tag name", "ns:root");
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root namespace id", "xmlns:ns");
+    TEST_TOKEN(WXMLTK_ATTR_EQ, "Root namespace eq");
+    TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "Root namespace val", "test:xml");
     TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Root tag end");
     TEST_STR_TOKEN(WXMLTK_CONTENT, "Root first content", "mixed text\n    ");
 
@@ -134,7 +137,7 @@ int main(int argc, char **argv) {
     TEST_STR_TOKEN(WXMLTK_CONTENT, "Root third content", "\n");
 
     TEST_TOKEN(WXMLTK_CLOSE_ELMNT_TAG_START, "Root tag end");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root tag name", "root");
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root tag name", "ns:root");
     TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Root tag end close");
 
     /* Force the reset handled in the grammar (closure of element) */
