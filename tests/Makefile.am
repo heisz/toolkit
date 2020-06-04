@@ -1,13 +1,13 @@
 #
 # Makefile instance for the toolkit libraries
 #
-# Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
+# Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
 # See the LICENSE file accompanying the distribution your rights to use
 # this software.
 #
 
 # Just a bunch of test programs
-bin_PROGRAMS = array buffer db hash json thread
+bin_PROGRAMS = array buffer db encoding hash json thread xml
 
 # Lots of test cases
 array_SOURCES = array.c
@@ -22,6 +22,13 @@ buffer_LDADD = $(top_builddir)/src/utility/buffer.lo \
                -ldl -lm
 buffer_LDFLAGS = -static
 
+encoding_SOURCES = encoding.c
+encoding_LDADD = $(top_builddir)/src/lang/encoding.lo \
+                 $(top_builddir)/src/utility/buffer.lo \
+                 $(top_builddir)/src/utility/mem.lo \
+                 -ldl -lm
+encoding_LDFLAGS = -static
+
 hash_SOURCES = hash.c
 hash_LDADD = $(top_builddir)/src/utility/hash.lo \
              $(top_builddir)/src/utility/mem.lo \
@@ -30,6 +37,7 @@ hash_LDFLAGS = -static
 
 json_SOURCES = json.c
 json_LDADD = $(top_builddir)/src/lang/json.lo \
+             $(top_builddir)/src/lang/encoding.lo \
              $(top_builddir)/src/utility/array.lo \
              $(top_builddir)/src/utility/hash.lo \
              $(top_builddir)/src/utility/buffer.lo \
@@ -53,6 +61,13 @@ db_LDADD = $(top_builddir)/src/db/dbxf.lo \
            @MYSQL_LIB@ @PGSQL_LIB@ \
            -lpthread -ldl -lm
 db_LDFLAGS = -static
+
+xml_SOURCES = xml.c
+xml_LDADD = $(top_builddir)/src/lang/xml.lo \
+            $(top_builddir)/src/utility/buffer.lo \
+            $(top_builddir)/src/utility/mem.lo \
+            -ldl -lm
+xml_LDFLAGS = -static
 
 # Related inclusion locations and other options
 AM_CPPFLAGS = -I$(top_srcdir) \
