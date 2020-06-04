@@ -478,6 +478,36 @@ void WXMLLexerDestroy(WXMLLexer *lexer) {
     lexer->offset = 0;
 }
 
+/* Used in several places below */
+static WXMLNamespace *_assignNS(WXMLElement *elmnt, char *name,
+                                WXMLNamespace *dflt) {
+    WXMLNamespace *ns = elmnt->namespaceSet;
+    char *colon = strchr(name, ':');
+
+    if (colon != NULL) {
+        *colon = '\0';
+        while (ns != NULL) {
+            if (strcmp(ns->prefix, name) == 0) {
+                break;
+            }
+            ns = ns->next;
+        }
+
+        if (ns == NULL) {
+            /* In the interest of utility, ignore unmatched namespace */
+            /* Technically correct, colons are not formally reserved in spec */
+            *colon = ':';
+            return dflt;
+        } else {
+            /* Strip the prefix */
+            (void) memmove(name, colon + 1, strlen(colon + 1) + 1);
+            return ns;
+        }
+    }
+
+    return dflt;
+}
+
 /**
  * Parse/decode XML text, returning a corresponding document representation.
  *
@@ -488,10 +518,10 @@ void WXMLLexerDestroy(WXMLLexer *lexer) {
  */
 WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen) {
     WXMLElement *retval = NULL, *current = NULL, *wkg;
+    WXMLNamespace *ns, *dfltNs;
     WXMLAttribute *attr = NULL;
     unsigned int lineNo;
     WXMLTokenType type;
-    WXMLNamespace *ns;
     WXMLLexer lexer;
     char *nm, *tmp;
     int offset;
@@ -660,6 +690,17 @@ WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen) {
                         (type != WXMLTK_EMPTY_ELMNT_TAG_END)) break;
 
             /* Element definition is complete, process namespacing */
+            dfltNs = current->namespaceSet;
+            while (dfltNs != NULL) {
+                if (*(dfltNs->prefix) == '\0') break;
+                dfltNs = dfltNs->next;
+            }
+            current->namespace = _assignNS(current, current->name, dfltNs);
+            attr = current->attributes;
+            while (attr != NULL) {
+                attr->namespace = _assignNS(current, attr->name, dfltNs);
+                attr = attr->next;
+            }
 
             /* If the final token was empty close, then pop it */
             if (type == WXMLTK_EMPTY_ELMNT_TAG_END) current = current->parent;
@@ -688,14 +729,33 @@ WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen) {
                 retval = current = NULL;
                 break;
             }
-            if (strcmp(lexer.lastToken.val, current->name) != 0) {
-                (void) snprintf(errorMsg, errorMsgLen,
-                                "Syntax error: Unmatched closing tag, expected "
-                                "</%s> (line %d)", current->name,
-                                lexer.lineNumber);
-                if (retval != NULL) WXML_Destroy(retval);
-                retval = current = NULL;
-                break;
+            nm = lexer.lastToken.val;
+            if ((current->namespace == NULL) ||
+                        (*(current->namespace->prefix) == '\0')) {
+                /* Non or default namespace, just the standard name */
+                if (strcmp(nm, current->name) != 0) {
+                    (void) snprintf(errorMsg, errorMsgLen,
+                                    "Syntax error: Unmatched closing tag, "
+                                    "expected </%s> (line %d)", current->name,
+                                    lexer.lineNumber);
+                    if (retval != NULL) WXML_Destroy(retval);
+                    retval = current = NULL;
+                    break;
+                }
+            } else {
+                offset = strlen(current->namespace->prefix);
+                if ((strncmp(nm, current->namespace->prefix, offset) != 0) ||
+                        (nm[offset] != ':') ||
+                        (strcmp(nm + offset + 1, current->name) != 0)) {
+                    (void) snprintf(errorMsg, errorMsgLen,
+                                    "Syntax error: Unmatched closing tag, "
+                                    "expected </%s:%s> (line %d)",
+                                    current->namespace->prefix, current->name,
+                                    lexer.lineNumber);
+                    if (retval != NULL) WXML_Destroy(retval);
+                    retval = current = NULL;
+                    break;
+                }
             }
             WXFree(lexer.lastToken.val);
             lexer.lastToken.val = NULL;

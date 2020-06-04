@@ -47,7 +47,7 @@ typedef struct WXMLAttribute {
     char *name;
 
     /* Namespace reference, if applicable */
-    struct XMLNamespace *namespace;
+    struct WXMLNamespace *namespace;
 
     /* Next attribute in the element linked list */
     struct WXMLAttribute *next;

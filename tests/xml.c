@@ -35,7 +35,7 @@ static char *bigXML =
     "<?xml version=\"1.0\"?>\n"
     "<!-- This is a pretty big bit of XML to test the lexer -->\n"
     "<!DOCTYPE test SYSTEM \"test.dtd\">\n"
-    "<ns:root xmlns:ns='test:xml'>mixed text\n"
+    "<ns:root xmlns:ns='test:xml' xmlns='dflt'>mixed text\n"
     "    <empty attr \t />\n"
     "    <notsoempty sqattr = '&lt;&amp;yo&gt;' "
                     "ns:dqattr=\"\">"
@@ -86,11 +86,12 @@ static struct ParseErrorDef {
  * Main testing entry point.  Lots of parsing is about to follow...
  */
 int main(int argc, char **argv) {
+    WXMLElement *doc, *child;
+    WXMLAttribute *attr;
     char errorMsg[1024];
     WXMLTokenType type;
     WXBuffer buffer;
     WXMLLexer lex;
-    WXMLElement *doc;
     int idx;
 
     /* At some point, put the MTraq testcase identifiers in here */
@@ -112,6 +113,9 @@ int main(int argc, char **argv) {
     TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root namespace id", "xmlns:ns");
     TEST_TOKEN(WXMLTK_ATTR_EQ, "Root namespace eq");
     TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "Root namespace val", "test:xml");
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root namespace dflt id", "xmlns");
+    TEST_TOKEN(WXMLTK_ATTR_EQ, "Root namespace dflt eq");
+    TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "Root namespace dflt val", "dflt");
     TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Root tag end");
     TEST_STR_TOKEN(WXMLTK_CONTENT, "Root first content", "mixed text\n    ");
 
@@ -197,5 +201,78 @@ int main(int argc, char **argv) {
         (void) fprintf(stderr, "Failed to parse main document: %s\n", errorMsg);
         exit(1);
     }
+
+    /* Lots of validations */
+    if ((doc->namespace == NULL) ||
+            (strcmp(doc->namespace->href, "test:xml") != 0) ||
+            (strcmp(doc->name, "root") != 0)) {
+        (void) fprintf(stderr, "Invalid name(space) for root element\n");
+        exit(1);
+    }
+    if (doc->attributes != NULL) {
+        (void) fprintf(stderr, "Not expecting root attributes\n");
+        exit(1);
+    }
+    if (strcmp(doc->content, "mixed text\n    \n    \n") != 0) {
+        (void) fprintf(stderr, "Incorrect aggregated content\n");
+        exit(1);
+    }
+
+    /* Nice that XML is ordered... */
+    child = doc->children;
+    if ((child == NULL) || (child->namespace == NULL) ||
+            (strcmp(child->namespace->href, "dflt") != 0) ||
+            (strcmp(child->name, "empty") != 0)) {
+        (void) fprintf(stderr, "Invalid name(space) for empty element\n");
+        exit(1);
+    }
+    attr = child->attributes;
+    if ((attr == NULL) || (attr->namespace == NULL) ||
+            (strcmp(attr->namespace->href, "dflt") != 0) ||
+            (strcmp(attr->name, "attr") != 0)) {
+        (void) fprintf(stderr, "Invalid name(space) for empty attr\n");
+        exit(1);
+    }
+    if (attr->value != NULL) {
+        (void) fprintf(stderr, "Not expecting content for empty attribute\n");
+        exit(1);
+    }
+
+    child = child->next;
+    if ((child == NULL) || (child->namespace == NULL) ||
+            (strcmp(child->namespace->href, "dflt") != 0) ||
+            (strcmp(child->name, "notsoempty") != 0)) {
+        (void) fprintf(stderr, "Invalid name(space) for notempty element\n");
+        exit(1);
+    }
+    attr = child->attributes;
+    if ((attr == NULL) || (attr->namespace == NULL) ||
+            (strcmp(attr->namespace->href, "dflt") != 0) ||
+            (strcmp(attr->name, "sqattr") != 0)) {
+        (void) fprintf(stderr, "Invalid name(space) for notempty sq attr\n");
+        exit(1);
+    }
+    if (strcmp(attr->value, "<&yo>") != 0) {
+        (void) fprintf(stderr, "Incorrect value for notempty sq attr\n");
+        exit(1);
+    }
+
+    attr = attr->next;
+    if ((attr == NULL) || (attr->namespace == NULL) ||
+            (strcmp(attr->namespace->href, "test:xml") != 0) ||
+            (strcmp(attr->name, "dqattr") != 0)) {
+        (void) fprintf(stderr, "Invalid name(space) for notempty dq attr\n");
+        exit(1);
+    }
+    if (strcmp(attr->value, "") != 0) {
+        (void) fprintf(stderr, "Incorrect value for notempty dq attr\n");
+        exit(1);
+    }
+
+    if (strcmp(child->content, "'$content%\"") != 0) {
+        (void) fprintf(stderr, "Incorrect content for non-empty element\n");
+        exit(1);
+    }
+
     WXML_Destroy(doc);
 }
