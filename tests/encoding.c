@@ -48,16 +48,26 @@ int main(int argc, char **argv) {
     if ((WXML_EscapeAttribute(&buffer, "a<b&c>d'e\"f", -1) == NULL) ||
             (buffer.length != 31) ||
             (strncmp((char *) buffer.buffer,
-                      "a&lt;b&amp;c&gt;d&apos;e&quot;f", 31) != 0)) {
+                     "a&lt;b&amp;c&gt;d&apos;e&quot;f", 31) != 0)) {
         (void) fprintf(stderr, "Incorrect XML encoding of attribute text\n");
         exit(1);
     }
     buffer.length = 0;
     if ((WXML_EscapeContent(&buffer, "a<b&c>d'e\"f", -1) == NULL) ||
-            (buffer.length != 31) ||
+            (buffer.length != 21) ||
             (strncmp((char *) buffer.buffer,
-                      "a&lt;b&amp;c&gt;d'e\"f", 31) != 0)) {
-        (void) fprintf(stderr, "Incorrect XML encoding of attribute text\n");
+                     "a&lt;b&amp;c&gt;d'e\"f", 21) != 0)) {
+        (void) fprintf(stderr, "Incorrect XML encoding of content\n");
+        exit(1);
+    }
+
+    /* URL */
+    buffer.length = 0;
+    if ((WXURL_EscapeURI(&buffer, "?a-z%A_Z!0.9 ", -1) == NULL) ||
+            (buffer.length != 21) ||
+            (strncmp((char *) buffer.buffer,
+                     "%3Fa-z%25A_Z%210.9%20", 21) != 0)) {
+        (void) fprintf(stderr, "Incorrect URI encoding of special chars\n");
         exit(1);
     }
 }

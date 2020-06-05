@@ -243,3 +243,64 @@ uint8_t *WXML_EscapeContent(WXBuffer *buffer, char *str, int len) {
 
     return buffer->buffer;
 }
+
+/* Another couple of tables for encoding speed */
+static uint8_t uriEscFlag[] = {
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+};
+
+static char uriHex[] = { '0', '1', '2', '3', '4', '5', '6', '7',
+                         '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
+
+/**
+ * Escape unsafe characters in an open URI specification.
+ *
+ * @param buffer Buffer to escape the provided URI onto.
+ * @param str URI to be escaped.
+ * @param len Length of text to escape, -1 for string length.
+ * @return Pointer to the buffer contents or NULL on memory error.
+ */
+uint8_t *WXURL_EscapeURI(WXBuffer *buffer, char *str, int len) {
+    unsigned char ch;
+    char *blk = str;
+    int l;
+
+    if (len < 0) len = strlen(str);
+    while (len > 0) {
+        ch = (unsigned char) *(str++);
+        len--;
+
+        if (uriEscFlag[ch]) {
+            if ((l = (str - blk) - 1) > 0) {
+                if (WXBuffer_Append(buffer, blk, l, TRUE) == NULL) return NULL;
+            }
+            if (WXBuffer_EnsureCapacity(buffer, 3, TRUE) == NULL) return NULL;
+            buffer->buffer[buffer->length++] = '%';
+            buffer->buffer[buffer->length++] = uriHex[(ch >> 4) & 0x0F];
+            buffer->buffer[buffer->length++] = uriHex[ch & 0x0F];
+            blk = str;
+        } else {
+            /* Just a regular character, track as a block */
+        }
+    }
+    if ((l = (str - blk)) > 0) {
+        if (WXBuffer_Append(buffer, blk, l, TRUE) == NULL) return NULL;
+    }
+
+    return buffer->buffer;
+}

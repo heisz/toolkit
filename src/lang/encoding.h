@@ -50,4 +50,14 @@ uint8_t *WXML_EscapeAttribute(WXBuffer *buffer, char *str, int len);
  */
 uint8_t *WXML_EscapeContent(WXBuffer *buffer, char *str, int len);
 
+/**
+ * Escape unsafe characters in an open URI specification.
+ *
+ * @param buffer Buffer to escape the provided URI onto.
+ * @param str URI to be escaped.
+ * @param len Length of text to escape, -1 for string length.
+ * @return Pointer to the buffer contents or NULL on memory error.
+ */
+uint8_t *WXURL_EscapeURI(WXBuffer *buffer, char *str, int len);
+
 #endif
