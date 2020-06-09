@@ -1,7 +1,7 @@
 /*
  * Dynamic/rolling memory buffer, which supports stream-like data processing.
  *
- * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -128,6 +128,18 @@ uint8_t *WXBuffer_AppendBuffer(WXBuffer *buffer, WXBuffer *source, int consume);
  */
 uint8_t *WXBuffer_Printf(WXBuffer *buffer, const char *format, ...) 
                                     __attribute__((format(__printf__, 2, 3)));
+
+/**
+ * Identical to the above, but print based on an explicit varargs instance.
+ *
+ * @param buffer The buffer instance to print into.
+ * @param format The standard printf format string.
+ * @param ap The allocated vararg instance.  Note that the state of this
+ *           is indeterminant after the call.
+ * @return Reference to the internal buffer if successfully (re)allocated or
+ *         NULL on a memory allocation failure.
+ */
+uint8_t *WXBuffer_VPrintf(WXBuffer *buffer, const char *format, va_list ap);
 
 /**
  * Pack a set of values into the buffer according to the (modified) Perl

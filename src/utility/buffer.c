@@ -153,15 +153,16 @@ uint8_t *WXBuffer_AppendBuffer(WXBuffer *buffer, WXBuffer *source,
 }
 
 /**
- * Print a formatted string into the buffer, resizing the buffer as required.
+ * Print a formatted string into the buffer based on a varargs instance.
  *
  * @param buffer The buffer instance to print into.
  * @param format The standard printf format string.
- * @param ... The argument set for the printf, according to the format.
+ * @param ap The allocated vararg instance.  Note that the state of this
+ *           is indeterminant after the call.
  * @return Reference to the internal buffer if successfully (re)allocated or
  *         NULL on a memory allocation failure.
  */
-uint8_t *WXBuffer_Printf(WXBuffer *buffer, const char *format, ...) {
+uint8_t *WXBuffer_VPrintf(WXBuffer *buffer, const char *format, va_list src) {
     ssize_t reqSize;
     va_list ap;
     int len;
@@ -174,8 +175,8 @@ uint8_t *WXBuffer_Printf(WXBuffer *buffer, const char *format, ...) {
         if (WXBuffer_EnsureCapacity(buffer, reqSize,
                                     FALSE) == NULL) return NULL;
 
-        /* Try to print in the allocated space */
-        va_start(ap, format);
+        /* Try to print in the allocated space (keep resetting the src ap) */
+        va_copy(ap, src);
         len = vsnprintf((char *) (buffer->buffer + buffer->length),
                         reqSize, format, ap);
         va_end(ap);
@@ -198,6 +199,27 @@ uint8_t *WXBuffer_Printf(WXBuffer *buffer, const char *format, ...) {
 
     /* (Unexpected) overflow condition, indicate failure */
     return NULL;
+}
+
+/**
+ * Print a formatted string into the buffer, resizing the buffer as required.
+ *
+ * @param buffer The buffer instance to print into.
+ * @param format The standard printf format string.
+ * @param ... The argument set for the printf, according to the format.
+ * @return Reference to the internal buffer if successfully (re)allocated or
+ *         NULL on a memory allocation failure.
+ */
+uint8_t *WXBuffer_Printf(WXBuffer *buffer, const char *format, ...) {
+    uint8_t *retval;
+    va_list ap;
+
+    /* Just initiate the vararg set and jump to the ap list method */
+    va_start(ap, format);
+    retval = WXBuffer_VPrintf(buffer, format, ap);
+    va_end(ap);
+
+    return retval;
 }
 
 /* Convoluted mechanisms to obtain the wrappers for system endian handling */

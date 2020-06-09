@@ -23,6 +23,8 @@ int main(int argc, char **argv) {
     testPack();
     testUnpack();
 
+    (void) fprintf(stderr, "All tests complete\n");
+
     return 0;
 }
 
@@ -66,6 +68,17 @@ static void testBasics() {
     if (memcmp(buffer.buffer + strlen(bigValue), bigValue,
                strlen(bigValue)) != 0) {
        (void) fprintf(stderr, "Incorrect second append value\n");
+       exit(1);
+    }
+
+    WXBuffer_Empty(&buffer);
+    if (WXBuffer_Printf(&buffer, "Test '%s' %d", "test", 12) == NULL) {
+       (void) fprintf(stderr, "Failed to print to buffer");
+       exit(1);
+    }
+    if ((buffer.length != 14) ||
+            (strncmp(buffer.buffer, "Test 'test' 12", 14) != 0)) {
+       (void) fprintf(stderr, "Incorrect result for print");
        exit(1);
     }
     WXBuffer_Destroy(&buffer);
