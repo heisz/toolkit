@@ -994,6 +994,96 @@ char *WXML_Encode(WXBuffer *buffer, WXMLElement *root, int prettyPrint) {
 }
 
 /**
+ * Find a node from the current node.  This uses a syntax similar to XPath but
+ * (obviously?) not the complete syntax.  The following are recognized:
+ *
+ * /child - immediate child instance named 'child'
+ * //child - match immediate children, then descendants named 'child'
+ * /child/@attr - for the immediate node named 'child', return the attribute
+ *                'attr' for the 'child' node.  Note that the @attr must be
+ *                the end, this is a direct access to the attribute itself
+ * #id - matches a node with an 'id' attribute (caseless) with the value
+ *
+ * @param root The root element to search from.
+ * @param path The path of the element to be found.
+ * @param descendant If TRUE, recurse through descendants (as if path
+ *                   begins with //).  False indicates immediate child, unless
+ *                   path begins with //.
+ * @return Either an element or attribute reference if found.  Note that the
+ *         exact type of data return will depend on the search undertaken.
+ */
+void *WXML_Find(WXMLElement *root, const char *path, int descendant) {
+    WXMLAttribute *attr;
+    WXMLElement *elmnt;
+    void *retval;
+    char *slash;
+    int len;
+
+    /* Handle leaders, determine recursion depth */
+    if (*path == '/') {
+        path++;
+        if (*path == '/') {
+            descendant = TRUE;
+            path++;
+        }
+    }
+
+    /* Exit if we're there */
+    if (*path == '\0') return root;
+
+    /* Delimit next element */
+    slash = strchr(path, '/');
+    len = (slash == NULL) ? strlen(path) : slash - path;
+
+    /* If we reach an attribute marker, we're at the end */
+    if (*path == '@') {
+        attr = root->attributes;
+        while (attr != NULL) {
+            if (strcmp(attr->name, path + 1) == 0) return attr;
+            attr = attr->next;
+        }
+    } else if (*path == '#') {
+        attr = root->attributes;
+        while (attr != NULL) {
+            if (strcasecmp(attr->name, "id") == 0) {
+                if ((strncmp(attr->value, path + 1, len - 1) == 0) &&
+                                      (strlen(attr->value) == len - 1)) {
+                    /* Match is exact or possible descendant */
+                    if (slash == NULL) return root;
+                    retval = WXML_Find(root, slash, FALSE);
+                    if (retval != NULL) return retval;
+                }
+            }
+            attr = attr->next;
+        }
+    } else {
+        elmnt = root->children;
+        while (elmnt != NULL) {
+            if ((strncmp(elmnt->name, path, len) == 0) &&
+                                  (strlen(elmnt->name) == len)) {
+                /* Match is exact or possible descendant */
+                if (slash == NULL) return elmnt;
+                retval = WXML_Find(elmnt, slash, FALSE);
+                if (retval != NULL) return retval;
+            }
+            elmnt = elmnt->next;
+        }
+    }
+
+    /* If we are in descendant mode, try the children */
+    if (descendant) {
+        elmnt = root->children;
+        while (elmnt != NULL) {
+            retval = WXML_Find(elmnt, path, TRUE);
+            if (retval != NULL) return retval;
+            elmnt = elmnt->next;
+        }
+    }
+
+    return NULL;
+}
+
+/**
  * Destroy/release the contents of the provided node/document (and all nested
  * content).  This method will also free the value itself (consistent with
  * the allocated return from the parse method).

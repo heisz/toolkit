@@ -155,6 +155,27 @@ WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen);
 char *WXML_Encode(WXBuffer *buffer, WXMLElement *root, int prettyPrint);
 
 /**
+ * Find a node from the current node.  This uses a syntax similar to XPath but
+ * (obviously?) not the complete syntax.  The following are recognized:
+ *
+ * /child - immediate child instance named 'child'
+ * //child - next nearest sibling named 'child'
+ * /child/@attr - for the immediate node named 'child', return the attribute
+ *                'attr' for the 'child' node.  Note that the @attr must be 
+ *                the end, this is a direct access to the attribute itself
+ * #id - matches a node with an 'id' attribute (caseless) with the value
+ *
+ * @param root The root element to search from.
+ * @param path The path of the element to be found.
+ * @param descendant If TRUE, recurse through descendants (as if path
+ *                   begins with //).  False indicates immediate child, unless
+ *                   path begins with //.
+ * @return Either an element or attribute reference if found.  Note that the
+ *         exact type of data return will depend on the search undertaken.
+ */
+void *WXML_Find(WXMLElement *root, const char *path, int descendant);
+
+/**
  * Destroy/release the contents of the provided node/document (and all nested
  * content).  This method will also free the value itself (consistent with
  * the allocated return from the parse method).

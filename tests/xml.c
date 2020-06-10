@@ -307,7 +307,8 @@ int main(int argc, char **argv) {
 
     /* Visual check for deeply nested layout */
     WXBuffer_Empty(&buffer);
-    doc = WXML_Decode("<one><two><three>a</three><three>b</three></two></one>",
+    doc = WXML_Decode("<one><two id=\"id2\"><three attr='yo'>a</three>"
+                                "<four>b</four></two></one>",
                       errorMsg, sizeof(errorMsg));
     if (doc == NULL) {
         (void) fprintf(stderr, "Failed to parse main document: %s\n", errorMsg);
@@ -316,7 +317,70 @@ int main(int argc, char **argv) {
     WXML_Encode(&buffer, doc, TRUE);
     (void) fprintf(stdout, "\n%s\n", buffer.buffer);
 
+    /*
+     * <one>
+     *     <two Id="id2">
+     *         <three attr="yo">a</three>
+     *         <four>b</four>
+     *     </two>
+     * </one>
+     */ 
+
+    /* Try some find bits and pieces */
+    child = (WXMLElement *) WXML_Find(doc, "dummy", FALSE);
+    if (child != NULL) {
+        (void) fprintf(stderr, "Found an undefined root element?\n");
+        exit(1);
+    }
+    child = (WXMLElement *) WXML_Find(doc, "/two", FALSE);
+    if ((child == NULL) || (strcmp(child->name, "two") != 0)) {
+        (void) fprintf(stderr, "Did not find the child\n");
+        exit(1);
+    }
+    child = (WXMLElement *) WXML_Find(doc, "/two//four", FALSE);
+    if ((child == NULL) || (strcmp(child->name, "four") != 0)) {
+        (void) fprintf(stderr, "Did not find the lowest child\n");
+        exit(1);
+    }
+    child = (WXMLElement *) WXML_Find(doc, "//four", FALSE);
+    if ((child == NULL) || (strcmp(child->name, "four") != 0)) {
+        (void) fprintf(stderr, "Did not find the lowest child descendant\n");
+        exit(1);
+    }
+    attr = (WXMLAttribute *) WXML_Find(doc, "//two/three/@attr", FALSE);
+    if ((attr == NULL) || (strcmp(attr->name, "attr") != 0)) {
+        (void) fprintf(stderr, "Did not find the embedded attribute\n");
+        exit(1);
+    }
+    attr = (WXMLAttribute *) WXML_Find(doc, "//three/@attr", FALSE);
+    if ((attr == NULL) || (strcmp(attr->name, "attr") != 0)) {
+        (void) fprintf(stderr, "Did not find the embedded attribute desc\n");
+        exit(1);
+    }
+    attr = (WXMLAttribute *) WXML_Find(doc, "//@attr", FALSE);
+    if ((attr == NULL) || (strcmp(attr->name, "attr") != 0)) {
+        (void) fprintf(stderr, "Did not find the embedded attribute desc!\n");
+        exit(1);
+    }
+    child = (WXMLElement *) WXML_Find(doc, "#id", TRUE);
+    if (child != NULL) {
+        (void) fprintf(stderr, "Did not find node by partial id\n");
+        exit(1);
+    }
+    attr = (WXMLAttribute *) WXML_Find(doc, "//#id2/three/@attr", FALSE);
+    if ((attr == NULL) || (strcmp(attr->name, "attr") != 0)) {
+        (void) fprintf(stderr, "Did not find the embedded attribute from id\n");
+        exit(1);
+    }
+    attr = (WXMLAttribute *) WXML_Find(doc, "//#id2//@attr", FALSE);
+    if ((attr == NULL) || (strcmp(attr->name, "attr") != 0)) {
+        (void) fprintf(stderr, "Did not find the descend attribute from id\n");
+        exit(1);
+    }
+
     /* Clean up on aisle 3! */
     WXML_Destroy(doc);
     WXBuffer_Destroy(&buffer);
+
+    (void) fprintf(stderr, "All tests passed\n");
 }
