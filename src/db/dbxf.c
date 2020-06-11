@@ -1,7 +1,7 @@
 /*
  * Implementation of the core elements of the database facade/abstraction.
  *
- * Copyright (C) 1997-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -50,7 +50,9 @@ const char *WXDB_GetLastErrorMessage(void *obj) {
         case WXDB_MAGIC_CONN:
             return ((WXDBConnection *) obj)->lastErrorMsg;
         case WXDB_MAGIC_STMT:
+            return ((WXDBStatement *) obj)->lastErrorMsg;
         case WXDB_MAGIC_RSLT:
+            return ((WXDBResultSet *) obj)->lastErrorMsg;
             break;
     }
 
@@ -186,8 +188,8 @@ static int createConnection(WXDBConnectionPool *pool,
 int WXDBConnectionPool_Init(WXDBConnectionPool *pool, const char *dsn,
                             const char *user, const char *password,
                             uint32_t initialSize) {
-    char *ptr, *key, *val, *oldkey, *oldval;
     int rc, idx, len, keylen, vallen;
+    char *ptr;
 
     /* Basic initialization of the static pool content, for cleanup */
     pool->magic = WXDB_MAGIC_POOL;
@@ -348,7 +350,7 @@ void WXDBConnectionPool_Return(WXDBConnection *conn) {
  * @param pool Reference to the pool instance to be destroyed (not freed).
  * @return One of the WXDRC_* result codes, depending on outcome.
  */
-int WXDBConnectionPool_Destroy(WXDBConnectionPool *pool) {
+void WXDBConnectionPool_Destroy(WXDBConnectionPool *pool) {
     WXDBConnection *conn, *next;;
 
     /* Rip out connections array from pool */
@@ -482,7 +484,69 @@ uint64_t WXDBConnection_LastRowId(WXDBConnection *conn) {
  *         (refer to error buffer in connection).
  */
 WXDBStatement *WXDBConnection_Prepare(WXDBConnection *conn, const char *stmt) {
-    return (conn->driver->stmtPrepare)(conn, stmt);
+    /* Let the driver create the base instance */
+    WXDBStatement *pstmt = (conn->driver->stmtPrepare)(conn, stmt);
+    if (pstmt == NULL) return pstmt;
+
+    /* Complete the setup (common) */
+    pstmt->magic = WXDB_MAGIC_STMT;
+    pstmt->parentConn = conn;
+    pstmt->driver = conn->driver;
+    *(pstmt->lastErrorMsg) = '\0';
+
+    return pstmt;
+}
+
+/**
+ * Bind an integer parameter for a subsequent prepared statement execution.
+ *
+ * @param stmt Reference to the prepared statement to bind against.
+ * @param paramIdx Zero-ordered index of the parameter to bind.
+ * @param val Value to be bound to the parameter.
+ * @return WXDRC_OK if successful, WXDRC_SYS_ERROR if parameter index is
+ *         invalid.
+ */
+int WXDBStatement_BindInt(WXDBStatement *stmt, int paramIdx, int val) {
+    return (stmt->driver->stmtBindInt)(stmt, paramIdx, val);
+}
+
+/**
+ * Bind an long parameter for a subsequent prepared statement execution.
+ *
+ * @param stmt Reference to the prepared statement to bind against.
+ * @param paramIdx Zero-ordered index of the parameter to bind.
+ * @param val Value to be bound to the parameter.
+ * @return WXDRC_OK if successful, WXDRC_SYS_ERROR if parameter index is
+ *         invalid.
+ */
+int WXDBStatement_BindLong(WXDBStatement *stmt, int paramIdx, long long val) {
+    return (stmt->driver->stmtBindLong)(stmt, paramIdx, val);
+}
+
+/**
+ * Bind a floating parameter for a subsequent prepared statement execution.
+ *
+ * @param stmt Reference to the prepared statement to bind against.
+ * @param paramIdx Zero-ordered index of the parameter to bind.
+ * @param val Value to be bound to the parameter.
+ * @return WXDRC_OK if successful, WXDRC_SYS_ERROR if parameter index is
+ *         invalid.
+ */
+int WXDBStatement_BindDouble(WXDBStatement *stmt, int paramIdx, double val) {
+    return (stmt->driver->stmtBindDouble)(stmt, paramIdx, val);
+}
+
+/**
+ * Bind a string parameter for a subsequent prepared statement execution.
+ *
+ * @param stmt Reference to the prepared statement to bind against.
+ * @param paramIdx Zero-ordered index of the parameter to bind.
+ * @param val Value to be bound to the parameter.
+ * @return WXDRC_OK if successful, WXDRC_SYS_ERROR if parameter index is
+ *         invalid.
+ */
+int WXDBStatement_BindString(WXDBStatement *stmt, int paramIdx, char *val) {
+    return (stmt->driver->stmtBindString)(stmt, paramIdx, val);
 }
 
 /**
@@ -533,6 +597,15 @@ int64_t WXDBStatement_RowsModified(WXDBStatement *stmt) {
  */
 uint64_t WXDBStatement_LastRowId(WXDBStatement *stmt) {
     return (stmt->driver->stmtLastRowId)(stmt);
+}
+
+/**
+ * Release the statement instance and any allocated resources associated to it.
+ *
+ * @param conn Reference to the statement to release.
+ */
+void WXDBStatement_Close(WXDBStatement *stmt) {
+    (stmt->driver->stmtClose)(stmt);
 }
 
 /***********************/

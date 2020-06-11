@@ -1,7 +1,7 @@
 /*
  * MySQL-specific implementations for the db facade layer.
  *
- * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -25,6 +25,9 @@ typedef struct WXMYSQLConnection {
 typedef struct WXMYSQLStatement {
     /* This appears first for virtual inheritance */
     WXDBStatement base;
+
+    /* Store the parameter count for optimized management */
+    uint32_t paramCount;
 } WXMYSQLStatement;
 
 /* To support the content model, need to bind a column structure for content */
@@ -144,7 +147,7 @@ static WXDBResultSet *createResultSet(WXDBConnection *conn,
 
 static int WXDBMYSQLConnection_Create(WXDBConnectionPool *pool,
                                       WXDBConnection **connRef) {
-    char *host, *sport, *socket, *dbname, *user, *password, *opt;
+    char *host, *sport, *socket, *dbname, *user, *password;
     unsigned long flags = CLIENT_MULTI_STATEMENTS;
     WXHashTable *options = &(pool->options);
     WXMYSQLConnection *conn;
@@ -333,6 +336,56 @@ static uint64_t WXDBMYSQLQry_LastRowId(WXDBConnection *conn) {
     return mysql_insert_id(db);
 }
 
+/***** Statement operations */
+
+static WXDBStatement *WXDBMYSQLStmt_Prepare(WXDBConnection *conn,
+                                            const char *stmt) {
+    return NULL;
+}
+
+static int WXDBMYSQLStmt_BindInt(WXDBStatement *stmt, int paramIdx, 
+                                 int val) {
+    // WXMYSQLStatement *myStmt = (WXMYSQLStatement *) stmt;
+    return FALSE;
+}
+
+static int WXDBMYSQLStmt_BindLong(WXDBStatement *stmt, int paramIdx,
+                                  long long val) {
+    // WXMYSQLStatement *myStmt = (WXMYSQLStatement *) stmt;
+    return FALSE;
+}
+
+static int WXDBMYSQLStmt_BindDouble(WXDBStatement *stmt, int paramIdx,
+                                    double val) {
+    // WXMYSQLStatement *myStmt = (WXMYSQLStatement *) stmt;
+    return FALSE;
+}
+
+static int WXDBMYSQLStmt_BindString(WXDBStatement *stmt, int paramIdx,
+                                    char * val) {
+    // WXMYSQLStatement *myStmt = (WXMYSQLStatement *) stmt;
+    return FALSE;
+}
+
+static int WXDBMYSQLStmt_Execute(WXDBStatement *stmt) {
+    return 0;
+}
+
+static WXDBResultSet *WXDBMYSQLStmt_ExecuteQuery(WXDBStatement *stmt) {
+    return NULL;
+}
+
+static int64_t WXDBMYSQLStmt_RowsModified(WXDBStatement *stmt) {
+    return 0;
+}
+
+static uint64_t WXDBMYSQLStmt_LastRowId(WXDBStatement *stmt) {
+    return 0;
+}
+
+static void WXDBMYSQLStmt_Close(WXDBStatement *stmt) {
+}
+
 /***** Result set operations *****/
 
 static uint32_t WXDBMYSQLRsltSet_ColumnCount(WXDBResultSet *rs) {
@@ -443,6 +496,17 @@ WXDBDriver _WXDBMYSQLDriver = {
     WXDBMYSQLQry_ExecuteQuery,
     WXDBMYSQLQry_RowsModified,
     WXDBMYSQLQry_LastRowId,
+
+    WXDBMYSQLStmt_Prepare,
+    WXDBMYSQLStmt_BindInt,
+    WXDBMYSQLStmt_BindLong,
+    WXDBMYSQLStmt_BindDouble,
+    WXDBMYSQLStmt_BindString,
+    WXDBMYSQLStmt_Execute,
+    WXDBMYSQLStmt_ExecuteQuery,
+    WXDBMYSQLStmt_RowsModified,
+    WXDBMYSQLStmt_LastRowId,
+    WXDBMYSQLStmt_Close,
 
     WXDBMYSQLRsltSet_ColumnCount,
     WXDBMYSQLRsltSet_ColumnName,

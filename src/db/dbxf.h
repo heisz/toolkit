@@ -1,7 +1,7 @@
 /*
  * Definitions for the top-level database facade instance.
  *
- * Copyright (C) 1997-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -107,9 +107,8 @@ void WXDBConnectionPool_Return(WXDBConnection *conn);
  * the allocated pool structure instance.
  *
  * @param pool Reference to the pool instance to be destroyed (not freed).
- * @return One of the WXDRC_* result codes, depending on outcome.
  */
-int WXDBConnectionPool_Destroy(WXDBConnectionPool *pool);
+void WXDBConnectionPool_Destroy(WXDBConnectionPool *pool);
 
 /**
  * Begin a transaction on the associated database connection.
@@ -216,6 +215,50 @@ uint64_t WXDBConnection_LastRowId(WXDBConnection *conn);
 WXDBStatement *WXDBConnection_Prepare(WXDBConnection *conn, const char *stmt);
 
 /**
+ * Bind an integer parameter for a subsequent prepared statement execution.
+ *
+ * @param stmt Reference to the prepared statement to bind against.
+ * @param paramIdx Zero-ordered index of the parameter to bind.
+ * @param val Value to be bound to the parameter.
+ * @return WXDRC_OK if successful, WXDRC_SYS_ERROR if parameter index is
+ *         invalid.
+ */
+int WXDBStatement_BindInt(WXDBStatement *stmt, int paramIdx, int val);
+
+/**
+ * Bind an long parameter for a subsequent prepared statement execution.
+ *
+ * @param stmt Reference to the prepared statement to bind against.
+ * @param paramIdx Zero-ordered index of the parameter to bind.
+ * @param val Value to be bound to the parameter.
+ * @return WXDRC_OK if successful, WXDRC_SYS_ERROR if parameter index is
+ *         invalid.
+ */
+int WXDBStatement_BindLong(WXDBStatement *stmt, int paramIdx, long long val);
+
+/**
+ * Bind a floating parameter for a subsequent prepared statement execution.
+ *
+ * @param stmt Reference to the prepared statement to bind against.
+ * @param paramIdx Zero-ordered index of the parameter to bind.
+ * @param val Value to be bound to the parameter.
+ * @return WXDRC_OK if successful, WXDRC_SYS_ERROR if parameter index is
+ *         invalid.
+ */
+int WXDBStatement_BindDouble(WXDBStatement *stmt, int paramIdx, double val);
+
+/**
+ * Bind a string parameter for a subsequent prepared statement execution.
+ *
+ * @param stmt Reference to the prepared statement to bind against.
+ * @param paramIdx Zero-ordered index of the parameter to bind.
+ * @param val Value to be bound to the parameter.
+ * @return WXDRC_OK if successful, WXDRC_SYS_ERROR if parameter index is
+ *         invalid.
+ */
+int WXDBStatement_BindString(WXDBStatement *stmt, int paramIdx, char *val);
+
+/**
  * Execute a prepared statement, typically an insert or update as this
  * method cannot return select data (refer to ExecuteQuery for that method).
  *
@@ -256,6 +299,13 @@ int64_t WXDBStatement_RowsModified(WXDBStatement *stmt);
  *         the last statement was not an insert or failed.
  */
 uint64_t WXDBStatement_LastRowId(WXDBStatement *stmt);
+
+/**
+ * Release the statement instance and any allocated resources associated to it.
+ *
+ * @param conn Reference to the statement to release.
+ */
+void WXDBStatement_Close(WXDBStatement *stmt);
 
 /**
  * Retrieve the number of returned columns in the result set.  Used for

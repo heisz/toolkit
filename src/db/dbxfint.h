@@ -1,7 +1,7 @@
 /*
  * Internal definitions for the db facade library - not to be read externally.
  *
- * Copyright (C) 1997-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -27,9 +27,12 @@ struct WXDBResultSet {
     uint32_t magic;
 
     /* Parent origin of the result set, statement and/or connection */
-	WXDBConnection *parentConn;
+    WXDBConnection *parentConn;
     WXDBStatement *parentStmt;
     WXDBDriver *driver;
+
+    /* Like the others, use a local buffer for rs error messaging */
+    char lastErrorMsg[WXDB_FIXED_ERROR_SIZE];
 };
 
 struct WXDBStatement {
@@ -40,7 +43,7 @@ struct WXDBStatement {
     WXDBConnection *parentConn;
     WXDBDriver *driver;
 
-    /* Like the others, use a local buffer for connection error messaging */
+    /* Like the others, use a local buffer for statement error messaging */
     char lastErrorMsg[WXDB_FIXED_ERROR_SIZE];
 };
 
@@ -86,10 +89,15 @@ struct WXDBDriver {
 
     /* Prepared statement fun */
     WXDBStatement *(*stmtPrepare)(WXDBConnection *conn, const char *stmt);
+    int (*stmtBindInt)(WXDBStatement *stmt, int paramIdx, int val);
+    int (*stmtBindLong)(WXDBStatement *stmt, int paramIdx, long long val);
+    int (*stmtBindDouble)(WXDBStatement *stmt, int paramIdx, double val);
+    int (*stmtBindString)(WXDBStatement *stmt, int paramIdx, char *val);
     int (*stmtExecute)(WXDBStatement *stmt);
     WXDBResultSet *(*stmtExecuteQuery)(WXDBStatement *stmt);
     int64_t (*stmtRowsModified)(WXDBStatement *stmt);
     uint64_t (*stmtLastRowId)(WXDBStatement *stmt);
+    void (*stmtClose)(WXDBStatement *stmt);
 
     /* Result set handling */
     uint32_t (*rsColumnCount)(WXDBResultSet *rs);
