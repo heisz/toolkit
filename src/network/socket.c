@@ -14,6 +14,7 @@
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -189,8 +190,8 @@ const char *WXSocket_GetErrorStr(int serrno) {
 }
 
 /* Common method for addrinfo wrapping with error translation */
-static int _addrinfo(char *host, char *service, struct addrinfo *hints,
-                     struct addrinfo **res) {
+static int _addrinfo(const char *host, const char *service,
+                     struct addrinfo *hints, struct addrinfo **res) {
     /* Wrap getaddrinfo() call with error handling */
     int rc = getaddrinfo(host, service, hints, res);
     if (rc != 0) {
@@ -228,7 +229,7 @@ static int _addrinfo(char *host, char *service, struct addrinfo *hints,
  * @return WXNRC_OK if the hostname is valid, WXNRC_DATA_ERROR otherwise.  Use
  *         WXSocket_GetLastErrNo to retrieve the failure condition.
  */
-int WXSocket_ValidateHostIpAddr(char *hostIpAddr) {
+int WXSocket_ValidateHostIpAddr(const char *hostIpAddr) {
     struct addrinfo hints, *hostInfo;
     int rc;
 
@@ -242,6 +243,21 @@ int WXSocket_ValidateHostIpAddr(char *hostIpAddr) {
     rc = _addrinfo(hostIpAddr, NULL, &hints, &hostInfo);
     if (rc == WXNRC_OK) freeaddrinfo(hostInfo);
     return rc;
+}
+
+/** 
+ * Determine if the provided target is a numeric IPv4 or IPv6 hostname.
+ *
+ * @param hostIpAddr The target address to check.
+ * @return TRUE if the address is a numeric IPv4 or IPv6 address.  False for
+ *         a 'hostname' (not validated as proper DNS hostname).
+ */
+int WXSocket_IsIpAddr(const char *hostIpAddr) {
+    char tmp[sizeof(struct in6_addr)];
+
+    if (inet_pton(AF_INET, hostIpAddr, tmp)) return TRUE;
+    if (inet_pton(AF_INET6, hostIpAddr, tmp)) return TRUE;
+    return FALSE;
 }
 
 /**
@@ -287,7 +303,7 @@ int WXSocket_AllocateSocket(void *addrInfo, WXSocket *socketRef) {
  *                  returned (if applicable, depending on error conditions).
  * @param timeoutRef If NULL, perform a synchronous connection (method will not
  *                   return until connection is established or an error occurs).
- *                   If non-NULL, an asynchronous connection will be made using
+ *                   If non-NULL, a synchronous connection will be made using
  *                   the referenced value as the timeout in milliseconds.  The
  *                   time remaining will be returned through the same reference,
  *                   (a negative result indicates a connection timeout).
@@ -403,6 +419,66 @@ int WXSocket_OpenTCPClientByAddr(void *addrInfo, WXSocket *socketRef,
 }
 
 /**
+ * Special form of the above method to support connection start in fully
+ * asynchronous environments.
+ *
+ * @param addrInfo The address (host, port, protocol) of the target to
+ *                 connect to, opaque instance of struct addrinfo.
+ * @param socketRef Pointer through which the created socket instance is
+ *                  returned (if applicable, depending on error conditions).
+ * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
+ */
+int WXSocket_OpenTCPClientByAddrAsync(void *addrInfo, WXSocket *socketRef) {
+    struct addrinfo *addressInfo = (struct addrinfo *) addrInfo;
+#ifdef _WXWIN_BUILD
+    SOCKET socketHandle;
+    int optLen;
+#else
+    int32_t socketHandle;
+    socklen_t optLen;
+#endif
+    int rc, errnum;
+
+    /* Create the socket instance */
+    rc = WXSocket_AllocateSocket(addrInfo, socketRef);
+    if (rc != WXNRC_OK) return rc;
+#ifdef _WXWIN_BUILD
+    socketHandle = (SOCKET) *socketRef;
+#else
+    socketHandle = (int32_t) *socketRef;
+#endif
+
+    /* Force non-blocking connect for async handling */
+    rc = WXSocket_SetNonBlockingState((WXSocket) socketHandle, TRUE);
+    if (rc) {
+        errnum = sockErrNo;
+        WXSocket_Close((WXSocket) socketHandle);
+        if (socketRef != NULL) *socketRef = INVALID_SOCKET_FD;
+        _setSockErrNo(errnum);
+        return rc;
+    }
+
+    /* Attempt connection, will most likely need wait */
+    if (connect(socketHandle, addressInfo->ai_addr,
+                addressInfo->ai_addrlen) < 0) {
+#ifdef _WXWIN_BUILD
+        if (sockErrNo != WSAEWOULDBLOCK) {
+#else
+        if (sockErrNo != EINPROGRESS) {
+#endif
+            /* Ooops, this is a real error condition */
+            errnum = sockErrNo;
+            WXSocket_Close((WXSocket) socketHandle);
+            if (socketRef != NULL) *socketRef = INVALID_SOCKET_FD;
+            _setSockErrNo(errnum);
+            return WXNRC_SYS_ERROR;
+        }
+    }
+
+    return WXNRC_OK;
+}
+
+/**
  * Convenience wrapper to open a 'standard' TCP client connection to a named
  * target instance with full resolution.
  *
@@ -412,13 +488,13 @@ int WXSocket_OpenTCPClientByAddr(void *addrInfo, WXSocket *socketRef,
  *                  returned (if applicable, depending on error conditions).
  * @param timeoutRef If NULL, perform a synchronous connection (method will not
  *                   return until connection is established or an error occurs).
- *                   If non-NULL, an asynchronous connection will be made using
+ *                   If non-NULL, a synchronous connection will be made using
  *                   the referenced value as the timeout in milliseconds.  The
  *                   time remaining will be returned through the same reference,
  *                   (a negative result indicates a connection timeout).
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSocket_OpenTCPClient(char *hostIpAddr, char *service,
+int WXSocket_OpenTCPClient(const char *hostIpAddr, const char *service,
                            WXSocket *socketRef, int32_t *timeoutRef) {
     struct addrinfo hints, *addrInfo = NULL;
     WXSocket socketHandle;
@@ -450,7 +526,7 @@ int WXSocket_OpenTCPClient(char *hostIpAddr, char *service,
  *                    returned.
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSocket_OpenUDPClient(char *hostIpAddr, char *service,
+int WXSocket_OpenUDPClient(const char *hostIpAddr, const char *service,
                            WXSocket *socketRef, void **addrInfoRef) {
     struct addrinfo hints, *addrInfo = NULL;
     int rc;
@@ -558,7 +634,7 @@ static int WXSocket_BindServer(struct addrinfo *addrInfo, uint32_t *portRef,
  *                  returned (if applicable, depending on error conditions).
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSocket_OpenTCPServer(char *hostIpAddr, char *service,
+int WXSocket_OpenTCPServer(const char *hostIpAddr, const char *service,
                            WXSocket *socketRef) {
     struct addrinfo hints, *addrInfo = NULL;
     WXSocket socketHandle;
@@ -590,7 +666,7 @@ int WXSocket_OpenTCPServer(char *hostIpAddr, char *service,
  *                  returned (if applicable, depending on error conditions).
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSocket_OpenEphemeralServer(char *hostIpAddr, uint32_t *portRef,
+int WXSocket_OpenEphemeralServer(const char *hostIpAddr, uint32_t *portRef,
                                  WXSocket *socketRef) {
     struct addrinfo hints, *addrInfo = NULL;
     WXSocket socketHandle;
@@ -624,7 +700,7 @@ int WXSocket_OpenEphemeralServer(char *hostIpAddr, uint32_t *portRef,
  *                  returned (if applicable, depending on error conditions).
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSocket_OpenUDPServer(char *hostIpAddr, char *service,
+int WXSocket_OpenUDPServer(const char *hostIpAddr, const char *service,
                            WXSocket *socketRef) {
     struct addrinfo hints, *addrInfo = NULL;
     WXSocket socketHandle;
@@ -728,7 +804,7 @@ int WXSocket_Accept(WXSocket serverSocket, WXSocket *socketRef,
  *                  depending on the read/write conditions.
  * @param timeoutRef If NULL, perform a synchronous wait (method will not
  *                   return until condition is reached or an error occurs).
- *                   If non-NULL, an asynchronous wait will be made using
+ *                   If non-NULL, a synchronous wait will be made using
  *                   the referenced value as the timeout in milliseconds.  The
  *                   time remaining will be returned through the same reference,
  *                   (a negative result indicates a connection timeout).
