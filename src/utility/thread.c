@@ -496,7 +496,6 @@ int WXThread_MutexLock(WXThread_Mutex *mutex) {
 #else
     int rc;
 
-
     /* Capture static initialization condition */
     if (threadInstanceKey == 0) threadsInit();
     if (*mutex == WXTHREAD_MUTEX_STATIC_INIT) {

@@ -80,4 +80,38 @@ void _WXLog_Binary(const char *fileName, const int lineNum, WXLogLevel level,
 #define WXLog_Binary(...) \
         _WXLog_Binary(__FILE__, __LINE__, ## __VA_ARGS__)
 
+/**
+ * Callback model interface for registering logging methods with other
+ * toolkit elements requiring logging (for consumers of those systems).
+ *
+ * @param level The enumerated level of the associated logging entry.
+ * @param context A string defining the context of the logged message.
+ * @param format Printf-based formatting for the log message.
+ * @param ... Extended argument set based on the provided printf format.
+ */
+typedef void (*WXLogger)(WXLogLevel level, const char *context,
+#ifndef _WXWIN_BUILD
+                         const char *format, ...)
+          __attribute__((format(__printf__, 3, 4)));
+#else
+                         const char *format, ...);
+#endif
+
+/**
+ * Standard logging implementation of the callback interface above, using the
+ * same internal logging mechanisms as the WXLog_Print method.
+ *
+ * @param level The enumerated level of the associated logging entry.
+ * @param context A string defining the context of the logged message.
+ * @param format Printf-based formatting for the log message.
+ * @param ... Extended argument set based on the provided printf format.
+ */
+void WXLog_Logger(WXLogLevel level, const char *context,
+#ifndef _WXWIN_BUILD
+                  const char *format, ...)
+          __attribute__((format(__printf__, 3, 4)));
+#else
+                   const char *format, ...);
+#endif
+
 #endif

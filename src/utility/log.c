@@ -117,6 +117,8 @@ void WXLog_GetFormattedTimestamp(char *timestamp) {
 
 /**
  * Base-level logging method, wrapped by supporting definitions below.
+ * Note that the file name is hijacked for the logging context string
+ * (negative line number).
  *
  * @param fileName The name of the associated file for the logging origin,
  *                 as provided by the compiler macro.
@@ -124,10 +126,12 @@ void WXLog_GetFormattedTimestamp(char *timestamp) {
  *                by the compiler macro.
  * @param level The enumerated level of the associated logging entry.
  * @param format Printf-based formatting for the log message.
+ * @param ap The allocated vararg instance.  Note that the state of this
+ *           is indeterminant after the call.
  * @param ... Extended argument set based on the provided printf format.
  */
-void _WXLog_Print(const char *fileName, const int lineNum, WXLogLevel level,
-                  const char *format, ...) {
+void _WXLog_VPrint(const char *fileName, const int lineNum, WXLogLevel level,
+                   const char *format, va_list src) {
     char *msgPtr, message[MESSAGE_SIZE], timestamp[128];
     size_t allocLen = 0;
     FILE *logFp;
@@ -147,7 +151,7 @@ void _WXLog_Print(const char *fileName, const int lineNum, WXLogLevel level,
     allocLen = MESSAGE_SIZE;
     while (TRUE) {
         /* Attempt the formatting, done if it fits */
-        va_start(ap, format);
+        va_copy(ap, src);
         len = vsnprintf(msgPtr, allocLen, format, ap);
         va_end(ap);
 
@@ -170,13 +174,48 @@ void _WXLog_Print(const char *fileName, const int lineNum, WXLogLevel level,
     }
 
     /* Out it goes! */
-    (void) fprintf(logFp, "%s %c [%s:%d] %s\n",
-                   timestamp, *(shortLogLevelNames[level]),
-                   logFileBaseName(fileName), lineNum, msgPtr);
+    if (lineNum >= 0) {
+        (void) fprintf(logFp, "%s %c [%s:%d] %s\n",
+                       timestamp, *(shortLogLevelNames[level]),
+                       logFileBaseName(fileName), lineNum, msgPtr);
+    } else {
+        (void) fprintf(logFp, "%s %c [%s] %s\n",
+                       timestamp, *(shortLogLevelNames[level]),
+                       fileName, msgPtr);
+    }
     (void) fflush(logFp);
 
     /* Clean up if buffer was allocated */
     if (msgPtr != message) WXFree(msgPtr);
+}
+
+void _WXLog_Print(const char *fileName, const int lineNum, WXLogLevel level,
+                  const char *format, ...) {
+    va_list ap;
+
+    /* Just initiate the vararg set and jump to the ap list method */
+    va_start(ap, format);
+    _WXLog_VPrint(fileName, lineNum, level, format, ap);
+    va_end(ap);
+}
+
+/**
+ * Standard logging implementation of the logger interface, using the
+ * same internal logging mechanisms as the WXLog_Print method.
+ *
+ * @param level The enumerated level of the associated logging entry.
+ * @param context A string defining the context of the logged message.
+ * @param format Printf-based formatting for the log message.
+ * @param ... Extended argument set based on the provided printf format.
+ */
+void WXLog_Logger(WXLogLevel level, const char *context,
+                  const char *format, ...) {
+    va_list ap;
+
+    /* Just initiate the vararg set and jump to the ap list method */
+    va_start(ap, format);
+    _WXLog_VPrint(context, -1, level, format, ap);
+    va_end(ap);
 }
 
 /**
