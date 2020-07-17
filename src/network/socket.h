@@ -72,6 +72,15 @@ const char *WXSocket_GetErrorStr(int serrno);
 int WXSocket_ValidateHostIpAddr(const char *hostIpAddr);
 
 /**
+ * Determine if the provided target is a numeric IPv4 or IPv6 hostname.
+ *
+ * @param hostIpAddr The target address to check.
+ * @return TRUE if the address is a numeric IPv4 or IPv6 address.  False for
+ *         a 'hostname' (not validated as proper DNS hostname).
+ */
+int WXSocket_IsIpAddr(const char *hostIpAddr);
+
+/**
  * Common method to allocate socket based on an address info definition.
  *
  * @param addrInfo The address (host, port, protocol) of the target to
