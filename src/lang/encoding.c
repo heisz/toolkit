@@ -135,26 +135,28 @@ uint8_t *WXJSON_EscapeString(WXBuffer *buffer, char *str, int len) {
 
 /* For performance/simplicity, use a character mapping table and fn */
 #define ESCAPE_ATTR 1
-#define ESCAPE_CONTENT 2
+#define ESCAPE_CANONICAL_ATTR 2
+#define ESCAPE_CONTENT 4
+#define ESCAPE_CANONICAL_CONTENT 8
 
 /* Follow best practice, always escape <&>, escape '" in attributes */
 static uint8_t xmlEscFlags[] = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 1, 0, 0, 0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 3, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  2,  2,  0,  0, 10,  0,  0, /* \t\n\r */
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  3,  0,  0,  0, 15,  1,  0,  0,  0,  0,  0,  0,  0,  0, /* "&' */
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 15,  0, 13,  0, /* <> */
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
 };
 
 static uint8_t *xmlEnc(WXBuffer *buffer, unsigned char ch) {
@@ -169,6 +171,12 @@ static uint8_t *xmlEnc(WXBuffer *buffer, unsigned char ch) {
             return WXBuffer_Append(buffer, "&quot;", 6, TRUE);
         case '\'':
             return WXBuffer_Append(buffer, "&apos;", 6, TRUE);
+        case '\t':
+            return WXBuffer_Append(buffer, "&#x9;", 5, TRUE);
+        case '\n':
+            return WXBuffer_Append(buffer, "&#xA;", 5, TRUE);
+        case '\r':
+            return WXBuffer_Append(buffer, "&#xD;", 5, TRUE);
     }
 
     return buffer->buffer;
@@ -180,9 +188,13 @@ static uint8_t *xmlEnc(WXBuffer *buffer, unsigned char ch) {
  * @param buffer Buffer to escape the provided text onto the end of.
  * @param str Text to be escaped.
  * @param len Length of text to escape, -1 for string length.
+ * @param isCanonical If TRUE (non-zero), follow canonical rules for attribute
+ *                    encoding, if FALSE, more generic.
  * @return Pointer to the buffer contents or NULL on memory error.
  */
-uint8_t *WXML_EscapeAttribute(WXBuffer *buffer, char *str, int len) {
+uint8_t *WXML_EscapeAttribute(WXBuffer *buffer, char *str, int len,
+                              int isCanonical) {
+    uint8_t flag = (isCanonical) ? ESCAPE_CANONICAL_ATTR : ESCAPE_ATTR;
     unsigned char ch;
     char *blk = str;
     int l;
@@ -192,7 +204,7 @@ uint8_t *WXML_EscapeAttribute(WXBuffer *buffer, char *str, int len) {
         ch = (unsigned char) *(str++);
         len--;
 
-        if (xmlEscFlags[ch] & ESCAPE_ATTR) {
+        if (xmlEscFlags[ch] & flag) {
             if ((l = (str - blk) - 1) > 0) {
                 if (WXBuffer_Append(buffer, blk, l, TRUE) == NULL) return NULL;
             }
@@ -215,9 +227,13 @@ uint8_t *WXML_EscapeAttribute(WXBuffer *buffer, char *str, int len) {
  * @param buffer Buffer to escape the provided text onto the end of.
  * @param str Text to be escaped.
  * @param len Length of text to escape, -1 for string length.
+ * @param isCanonical If TRUE (non-zero), follow canonical rules for content
+ *                    encoding, if FALSE, more generic.
  * @return Pointer to the buffer contents or NULL on memory error.
  */
-uint8_t *WXML_EscapeContent(WXBuffer *buffer, char *str, int len) {
+uint8_t *WXML_EscapeContent(WXBuffer *buffer, char *str, int len,
+                            int isCanonical) {
+    uint8_t flag = (isCanonical) ? ESCAPE_CANONICAL_CONTENT : ESCAPE_CONTENT;
     unsigned char ch;
     char *blk = str;
     int l;
@@ -227,7 +243,7 @@ uint8_t *WXML_EscapeContent(WXBuffer *buffer, char *str, int len) {
         ch = (unsigned char) *(str++);
         len--;
 
-        if (xmlEscFlags[ch] & ESCAPE_CONTENT) {
+        if (xmlEscFlags[ch] & flag) {
             if ((l = (str - blk) - 1) > 0) {
                 if (WXBuffer_Append(buffer, blk, l, TRUE) == NULL) return NULL;
             }

@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
 
     /* XML */
     buffer.length = 0;
-    if ((WXML_EscapeAttribute(&buffer, "a<b&c>d'e\"f", -1) == NULL) ||
+    if ((WXML_EscapeAttribute(&buffer, "a<b&c>d'e\"f", -1, FALSE) == NULL) ||
             (buffer.length != 31) ||
             (strncmp((char *) buffer.buffer,
                      "a&lt;b&amp;c&gt;d&apos;e&quot;f", 31) != 0)) {
@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
     buffer.length = 0;
-    if ((WXML_EscapeContent(&buffer, "a<b&c>d'e\"f", -1) == NULL) ||
+    if ((WXML_EscapeContent(&buffer, "a<b&c>d'e\"f", -1, FALSE) == NULL) ||
             (buffer.length != 21) ||
             (strncmp((char *) buffer.buffer,
                      "a&lt;b&amp;c&gt;d'e\"f", 21) != 0)) {

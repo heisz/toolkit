@@ -50,9 +50,9 @@ WXMLElement *WXML_AllocateElement(WXMLElement *parent, const char *name,
         elmnt->name = (char *) name;
         elmnt->content = (char *) content;
     } else {
-        elmnt->name = _xmlStrDup(name);
+        elmnt->name = (name != NULL) ? _xmlStrDup(name) : NULL;
         if (content != NULL) elmnt->content = _xmlStrDup(content);
-        if ((elmnt->name == NULL) ||
+        if (((name != NULL) && (elmnt->name == NULL)) ||
                 ((content != NULL) && (elmnt->content == NULL))) {
             if (elmnt->content != NULL) WXFree(elmnt->content);
             if (elmnt->name != NULL) WXFree(elmnt->name);
@@ -263,22 +263,22 @@ static WXMLTokenType _allocTextToken(WXMLLexer *lexer, WXMLTokenType type,
         while (str != NULL) {
             str = strchr(str, '&');
             if (str != NULL) {
-                l = strlen(enc = str + 1);
+                l = strlen(enc = (str + 1));
                 if (strncmp(enc, "amp;", 4) == 0) {
                     *(str++) = '&';
-                    (void) memmove(enc, enc + 4, l - 3);
+                    (void) memmove(str, enc + 4, l - 3);
                 } else if (strncmp(enc, "apos;", 5) == 0) {
                     *(str++) = '\'';
-                    (void) memmove(enc, enc + 5, l - 4);
+                    (void) memmove(str, enc + 5, l - 4);
                 } else if (strncmp(enc, "lt;", 3) == 0) {
                     *(str++) = '<';
-                    (void) memmove(enc, enc + 3, l - 2);
+                    (void) memmove(str, enc + 3, l - 2);
                 } else if (strncmp(enc, "gt;", 3) == 0) {
                     *(str++) = '>';
-                    (void) memmove(enc, enc + 3, l - 2);
+                    (void) memmove(str, enc + 3, l - 2);
                 } else if (strncmp(enc, "quot;", 5) == 0) {
                     *(str++) = '"';
-                    (void) memmove(enc, enc + 5, l - 4);
+                    (void) memmove(str, enc + 5, l - 4);
                 } else if ((*(enc++) == '#') &&
                                (isdigit(*enc) || (*enc == 'x'))) {
                     if (*enc == 'x') {
@@ -296,7 +296,7 @@ static WXMLTokenType _allocTextToken(WXMLLexer *lexer, WXMLTokenType type,
                     }
                     /* TODO - this does not support full Unicode properly! */
                     *(str++) = (ch & 0xFF);
-                    (void) memmove(enc - 1, eptr + 1, l - (eptr - enc) + 2);
+                    (void) memmove(str, eptr + 1, l - (eptr - enc) - 1);
                 } else {
                     (void) snprintf(errorMsg, errorMsgLen,
                                    "Invalid character entity reference "
@@ -513,11 +513,16 @@ static WXMLNamespace *_assignNS(WXMLElement *elmnt, char *name,
  * Parse/decode XML text, returning a corresponding document representation.
  *
  * @param content The XML document/content to be parsed.
+ * @param retainTextFragments If TRUE (non-zero), text fragments are retained
+ *                            (NULL-named children) and consolidated in parent
+ *                            element.  If FALSE, only consolidated content is
+ *                            captured.
  * @param errorMsg External buffer for returning parsing error details.
  * @param errorMsgLen Length of provided buffer.
  * @return The document root instance, or NULL on parsing or memory failure.
  */
-WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen) {
+WXMLElement *WXML_Decode(const char *content, int retainTextFragments,
+                         char *errorMsg, int errorMsgLen) {
     WXMLElement *retval = NULL, *current = NULL;
     WXMLNamespace *ns, *dfltNs;
     WXMLAttribute *attr = NULL;
@@ -532,7 +537,7 @@ WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen) {
     WXMLLexerInit(&lexer, content);
     while ((lexer.lastToken.type != WXMLTK_ERROR) &&
                        (lexer.lastToken.type != WXMLTK_EOF)) {
-        /* Top level has a limited set of possbilities */
+        /* Top level has a limited set of possibilities */
         type = WXMLLexerNext(&lexer, errorMsg, errorMsgLen);
         if ((type == WXMLTK_ERROR) || (type == WXMLTK_EOF)) break;
 
@@ -787,6 +792,14 @@ WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen) {
             if (current == NULL) lexer.ignoreWhitespace = TRUE;
 
         } else if ((type == WXMLTK_CONTENT) && (current != NULL)) {
+            /* Allocate text fragment child if so requested */
+            if (retainTextFragments) {
+                if (WXML_AllocateElement(current, NULL, NULL,
+                                         lexer.lastToken.val, TRUE) == NULL) {
+                    goto memfail;
+                }
+            }
+
             /* Just append to what's there (or just initialize) */
             if (current->content == NULL) {
                 /* Just steal the allocated value */
@@ -843,12 +856,14 @@ memfail:
 }
 
 /* Internal recursion method for encoding */
+/* Format is 1 for pretty, 0 for standard, -1 for canonical */
 static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
-                            int prettyPrint, int indent) {
+                            int format, int indent) {
     WXMLNamespace *ns = elmnt->namespaceSet;
     WXMLAttribute *attr = elmnt->attributes;
     WXMLElement *child = elmnt->children;
-    int l, isFirst = TRUE, leader;
+    int l, isFirst = TRUE, leader, hasChildElement;
+    int isCanonical = (format < 0) ? TRUE : FALSE;
     char *start, *end;
 
     leader = 4 * indent + 1;
@@ -868,7 +883,7 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
     while (ns != NULL) {
         if (ns->origin != elmnt) break;
 
-        if ((prettyPrint) && (!isFirst)) {
+        if ((format > 0) && (!isFirst)) {
             if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
             if (WXIndent(buffer, leader) == NULL) return NULL;
         }
@@ -881,8 +896,8 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
         }
 
         if (WXBuffer_Append(buffer, "=\"", 2, TRUE) == NULL) return NULL;
-        if (WXML_EscapeAttribute(buffer, ns->href,
-                                 strlen(ns->href)) == NULL) return NULL;
+        if (WXML_EscapeAttribute(buffer, ns->href, -1,
+                                 isCanonical) == NULL) return NULL;
         if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return NULL;
 
         isFirst = FALSE;
@@ -891,7 +906,7 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
 
     /* Then attributes */
     while (attr != NULL) {
-        if ((prettyPrint) && (!isFirst)) {
+        if ((format > 0) && (!isFirst)) {
             if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
             if (WXIndent(buffer, leader) == NULL) return NULL;
         }
@@ -908,8 +923,8 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
 
         if (attr->value != NULL) {
             if (WXBuffer_Append(buffer, "=\"", 2, TRUE) == NULL) return NULL;
-            if (WXML_EscapeAttribute(buffer, attr->value,
-                                     strlen(attr->value)) == NULL) return NULL;
+            if (WXML_EscapeAttribute(buffer, attr->value, -1,
+                                     isCanonical) == NULL) return NULL;
             if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return NULL;
         }
 
@@ -917,8 +932,8 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
         attr = attr->next;
     }
 
-    /* Immediate closure if no content */
-    if ((elmnt->children == NULL) &&
+    /* Immediate closure if no content and not canonical */
+    if ((format >= 0) && (elmnt->children == NULL) &&
                  ((elmnt->content == NULL) || (*(elmnt->content) == '\0'))) {
         if (WXBuffer_Append(buffer, "/>", 2, TRUE) == NULL) return NULL;
         return buffer->buffer;
@@ -927,19 +942,32 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
     }
 
     /* Otherwise, children, content (encoded) and closing tag */
+    hasChildElement = FALSE;
     while (child != NULL) {
-        if (prettyPrint) {
+        /* Output explicit canonical text entries, skip otherwise (collected) */
+        if (child->name == NULL) {
+            if (format < 0) {
+                /* TODO - various text encoding filters here */
+                if (WXML_EscapeContent(buffer, child->content, -1,
+                                       TRUE) == NULL) return NULL;
+            }
+            child = child->next;
+            continue;
+        }
+        hasChildElement = TRUE;
+
+        if (format > 0) {
             if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
             if (WXIndent(buffer, (indent + 1) * 4) == NULL) return NULL;
         }
 
-        if (_encodeElement(buffer, child, prettyPrint,
+        if (_encodeElement(buffer, child, format,
                            indent + 1) == NULL) return NULL;
 
         child = child->next;
     }
 
-    if (prettyPrint && (elmnt->children != NULL)) {
+    if ((format > 0) && hasChildElement) {
         /* At this point, nested content is not identical, reformat it */
         if (elmnt->content != NULL) {
             start = elmnt->content;
@@ -949,17 +977,17 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
                 while (isspace(*end)) end--;
                 if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
                 if (WXIndent(buffer, (indent + 1) * 4) == NULL) return NULL;
-                if (WXML_EscapeContent(buffer, start,
-                                       end - start + 1) == NULL) return NULL;
+                if (WXML_EscapeContent(buffer, start, end - start + 1,
+                                       FALSE) == NULL) return NULL;
             }
         }
 
         if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
         if (WXIndent(buffer, indent * 4) == NULL) return NULL;
-    } else {
+    } else if (format >= 0) {
         if (elmnt->content != NULL) {
-            if (WXML_EscapeContent(buffer, elmnt->content,
-                                   strlen(elmnt->content)) == NULL) return NULL;
+            if (WXML_EscapeContent(buffer, elmnt->content, -1,
+                                   FALSE) == NULL) return NULL;
         }
     }
 
@@ -988,7 +1016,29 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
  *         or NULL if memory allocation failure occurred.
  */
 char *WXML_Encode(WXBuffer *buffer, WXMLElement *root, int prettyPrint) {
-    if (_encodeElement(buffer, root, prettyPrint, 0) == NULL) return NULL;
+    if (_encodeElement(buffer, root,
+                       (prettyPrint) ? 1 : 0, 0) == NULL) return NULL;
+    if (WXBuffer_Append(buffer, "\0", 1, TRUE) == NULL) return NULL;
+    return buffer->buffer;
+}
+
+/**
+ * Similar to the previous, but encode the content according to published
+ * specifications for canonicalized XML.  Note that the toolkit XML parser
+ * already discards a lot of elements, so PI's, DOCTYPES's and comments are
+ * never going to appear in the canonicalized form.  Source document must
+ * be parsed with retainTextFragments set to TRUE.
+ *
+ * @param buffer Buffer into which the XML data should be canonicalized.
+ * @param root The XML document (root) to be canonicalized.
+ * @param skip If non-NULL, do not include this node in the canonicalized form
+ *             (signature).
+ * @return The buffer area containing the output document (null terminated)
+ *         or NULL if memory allocation failure occurred.
+ */
+char *WXML_Canonicalize(WXBuffer *buffer, WXMLElement *root,
+                        WXMLElement *skip) {
+    if (_encodeElement(buffer, root, -1, 0) == NULL) return NULL;
     if (WXBuffer_Append(buffer, "\0", 1, TRUE) == NULL) return NULL;
     return buffer->buffer;
 }
@@ -1059,8 +1109,9 @@ void *WXML_Find(WXMLElement *root, const char *path, int descendant) {
     } else {
         elmnt = root->children;
         while (elmnt != NULL) {
-            if ((strncmp(elmnt->name, path, len) == 0) &&
-                                  (strlen(elmnt->name) == len)) {
+            if ((elmnt->name != NULL) &&
+                    ((strncmp(elmnt->name, path, len) == 0) &&
+                                       (strlen(elmnt->name) == len))) {
                 /* Match is exact or possible descendant */
                 if (slash == NULL) return elmnt;
                 retval = WXML_Find(elmnt, slash, FALSE);
@@ -1124,7 +1175,7 @@ void WXML_Destroy(WXMLElement *root) {
     }
 
     /* Finally, discard associated details and the node itself */
-    WXFree(root->name);
+    if (root->name != NULL) WXFree(root->name);
     if (root->content != NULL) WXFree(root->content);
     WXFree(root);
 }

@@ -36,9 +36,12 @@ uint8_t *WXJSON_EscapeString(WXBuffer *buffer, char *str, int len);
  * @param buffer Buffer to escape the provided text onto the end of.
  * @param str Text to be escaped.
  * @param len Length of text to escape, -1 for string length.
+ * @param isCanonical If TRUE (non-zero), follow canonical rules for attribute
+ *                    encoding, if FALSE, more generic.
  * @return Pointer to the buffer contents or NULL on memory error.
  */
-uint8_t *WXML_EscapeAttribute(WXBuffer *buffer, char *str, int len);
+uint8_t *WXML_EscapeAttribute(WXBuffer *buffer, char *str, int len,
+                              int isCanonical);
 
 /**
  * Escape unsafe character sequences for XML content inclusion.
@@ -46,9 +49,12 @@ uint8_t *WXML_EscapeAttribute(WXBuffer *buffer, char *str, int len);
  * @param buffer Buffer to escape the provided text onto the end of.
  * @param str Text to be escaped.
  * @param len Length of text to escape, -1 for string length.
+ * @param isCanonical If TRUE (non-zero), follow canonical rules for content 
+ *                    encoding, if FALSE, more generic.
  * @return Pointer to the buffer contents or NULL on memory error.
  */
-uint8_t *WXML_EscapeContent(WXBuffer *buffer, char *str, int len);
+uint8_t *WXML_EscapeContent(WXBuffer *buffer, char *str, int len,
+                            int isCanonical);
 
 /**
  * Escape unsafe characters in an open URI specification.

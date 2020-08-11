@@ -167,7 +167,7 @@ int main(int argc, char **argv) {
         WXMLLexerDestroy(&lex);
 
         /* While in this loop, test the parser error passthrough */
-        doc = WXML_Decode(lexerErrorConds[idx].content, errorMsg,
+        doc = WXML_Decode(lexerErrorConds[idx].content, TRUE, errorMsg,
                           sizeof(errorMsg));
         if ((doc != NULL) ||
                 (strstr(errorMsg, lexerErrorConds[idx].exp) == NULL)) {
@@ -182,7 +182,7 @@ int main(int argc, char **argv) {
 
     /* Second set of errors are only detected by the parser */
     for (idx = 0; idx < PARSE_ERROR_COUNT; idx++) {
-        doc = WXML_Decode(parserErrorConds[idx].content, errorMsg,
+        doc = WXML_Decode(parserErrorConds[idx].content, FALSE, errorMsg,
                           sizeof(errorMsg));
         if ((doc != NULL) ||
                 (strstr(errorMsg, parserErrorConds[idx].exp) == NULL)) {
@@ -196,7 +196,7 @@ int main(int argc, char **argv) {
     (void) fprintf(stderr, "Parse error tests complete\n");
 
     /* And now to full parsing */
-    doc = WXML_Decode(bigXML, errorMsg, sizeof(errorMsg));
+    doc = WXML_Decode(bigXML, FALSE, errorMsg, sizeof(errorMsg));
     if (doc == NULL) {
         (void) fprintf(stderr, "Failed to parse main document: %s\n", errorMsg);
         exit(1);
@@ -306,10 +306,11 @@ int main(int argc, char **argv) {
     WXML_Destroy(doc);
 
     /* Visual check for deeply nested layout */
+    /* Note that this can support retaining since there's no extra space */
     WXBuffer_Empty(&buffer);
     doc = WXML_Decode("<one><two id=\"id2\"><three attr='yo'>a</three>"
                                 "<four>b</four></two></one>",
-                      errorMsg, sizeof(errorMsg));
+                      TRUE, errorMsg, sizeof(errorMsg));
     if (doc == NULL) {
         (void) fprintf(stderr, "Failed to parse main document: %s\n", errorMsg);
         exit(1);
@@ -377,9 +378,212 @@ int main(int argc, char **argv) {
         (void) fprintf(stderr, "Did not find the descend attribute from id\n");
         exit(1);
     }
+    WXML_Destroy(doc);
+
+    /* Try a more complex case with retained text content */
+    doc = WXML_Decode(" <one><two id=\"id2&apos;&quot;&lt;&gt;\">"
+                                           "<![CDATA[ ab]]>"
+                                "<three attr='yo'>a&apos;&gt;&lt;\"</three>"
+                                " cd <four>b</four><empty/>fg</two></one>  ",
+                      TRUE, errorMsg, sizeof(errorMsg));
+    if (doc == NULL) {
+        (void) fprintf(stderr, "Failed to parse main document: %s\n", errorMsg);
+        exit(1);
+    }
+    WXBuffer_Empty(&buffer);
+    WXML_Encode(&buffer, doc, TRUE);
+    (void) fprintf(stdout, "PRETTY:\n%s\n", buffer.buffer);
+    WXBuffer_Empty(&buffer);
+    WXML_Encode(&buffer, doc, FALSE);
+    (void) fprintf(stdout, "STANDARD:\n%s\n", buffer.buffer);
+    WXBuffer_Empty(&buffer);
+    WXML_Canonicalize(&buffer, doc, NULL);
+    (void) fprintf(stdout, "CANONICAL:\n%s\n", buffer.buffer);
+    WXML_Destroy(doc);
+
+    /* Why not use the test cases from the canonical specification? */
+    /* Section 3.1 (note, not quite correct due to PI) */
+    doc = WXML_Decode("<?xml version=\"1.0\"?>\n"
+                      "\n"
+                      "<?xml-stylesheet   href=\"doc.xsl\"\n"
+                      "   type=\"text/xsl\"   ?>\n"
+                      "\n"
+                      "<!DOCTYPE doc SYSTEM \"doc.dtd\">\n"
+                      "\n"
+                      "<doc>Hello, world!<!-- Comment 1 --></doc>\n"
+                      "\n"
+                      "<?pi-without-data     ?>\n"
+                      "\n"
+                      "<!-- Comment 2 -->\n"
+                      "\n"
+                      "<!-- Comment 3 -->",
+                      TRUE, errorMsg, sizeof(errorMsg));
+    if (doc == NULL) {
+        (void) fprintf(stderr, "Failed to parse document 3.1: %s\n", errorMsg);
+        exit(1);
+    }
+    WXBuffer_Empty(&buffer);
+    WXML_Canonicalize(&buffer, doc, NULL);
+    if (strcmp(buffer.buffer, "<doc>Hello, world!</doc>") != 0) {
+        (void) fprintf(stderr, "Incorrect canonical result for Section 3.1\n");
+        exit(1);
+    }
+    WXML_Destroy(doc);
+
+    /* Section 3.2 */
+    doc = WXML_Decode("<doc>\n"
+                      "   <clean>   </clean>\n"
+                      "   <dirty>   A   B   </dirty>\n"
+                      "   <mixed>\n"
+                      "      A\n"
+                      "      <clean>   </clean>\n"
+                      "      B\n"
+                      "      <dirty>   A   B   </dirty>\n"
+                      "      C\n"
+                      "   </mixed>\n"
+                      "</doc>",
+                      TRUE, errorMsg, sizeof(errorMsg));
+    if (doc == NULL) {
+        (void) fprintf(stderr, "Failed to parse document 3.2: %s\n", errorMsg);
+        exit(1);
+    }
+    WXBuffer_Empty(&buffer);
+    WXML_Canonicalize(&buffer, doc, NULL);
+    if (strcmp(buffer.buffer,
+               "<doc>\n"
+               "   <clean>   </clean>\n"
+               "   <dirty>   A   B   </dirty>\n"
+               "   <mixed>\n"
+               "      A\n"
+               "      <clean>   </clean>\n"
+               "      B\n"
+               "      <dirty>   A   B   </dirty>\n"
+               "      C\n"
+               "   </mixed>\n"
+               "</doc>") != 0) {
+        (void) fprintf(stderr, "Incorrect canonical result for Section 3.2\n");
+        exit(1);
+    }
+    WXML_Destroy(doc);
+
+    /* Section 3.3 */
+    /* Note: no DOCTYPE support for default attributes */
+    doc = WXML_Decode("<doc>\n"
+                      "   <e1   />\n"
+                      "   <e2   ></e2>\n"
+                      "   <e3   name = \"elem3\"   id=\"elem3\"   />\n"
+                      "   <e4   name=\"elem4\"   id=\"elem4\"   ></e4>\n"
+                      "   <e5 a:attr=\"out\" b:attr=\"sorted\" "
+                                                 "attr2=\"all\" attr=\"I'm\"\n"
+                      "      xmlns:b=\"http://www.ietf.org\"\n"
+                      "      xmlns:a=\"http://www.w3.org\"\n"
+                      "      xmlns=\"http://example.org\"/>\n"
+                      "   <e6 xmlns=\"\" xmlns:a=\"http://www.w3.org\">\n"
+                      "      <e7 xmlns=\"http://www.ietf.org\">\n"
+                      "         <e8 xmlns=\"\" xmlns:a=\"http://www.w3.org\">\n"
+                      "            <e9 attr=\"default\" xmlns=\"\" xmlns:a=\""
+                                           "http://www.ietf.org\"/>\n"
+                      "         </e8>\n"
+                      "      </e7>\n"
+                      "   </e6>\n"
+                      "</doc>\n",
+                      TRUE, errorMsg, sizeof(errorMsg));
+    if (doc == NULL) {
+        (void) fprintf(stderr, "Failed to parse document 3.3: %s\n", errorMsg);
+        exit(1);
+    }
+    WXBuffer_Empty(&buffer);
+    WXML_Canonicalize(&buffer, doc, NULL);
+    if (strcmp(buffer.buffer,
+               "<doc>\n"
+               "   <e1></e1>\n"
+               "   <e2></e2>\n"
+               "   <e3 id=\"elem3\" name=\"elem3\"></e3>\n"
+               "   <e4 id=\"elem4\" name=\"elem4\"></e4>\n"
+               "   <e5 xmlns=\"http://example.org\" "
+                      "xmlns:a=\"http://www.w3.org\" "
+                      "xmlns:b=\"http://www.ietf.org\" "
+                      "attr=\"I'm\" attr2=\"all\" "
+                      "b:attr=\"sorted\" a:attr=\"out\"></e5>\n"
+               "   <e6 xmlns:a=\"http://www.w3.org\">\n"
+               "      <e7 xmlns=\"http://www.ietf.org\">\n"
+               "         <e8 xmlns=\"\">\n"
+               "            <e9 xmlns:a=\"http://www.ietf.org\" "
+                               "attr=\"default\"></e9>\n"
+               "         </e8>\n"
+               "      </e7>\n"
+               "   </e6>\n"
+               "</doc>") != 0) {
+        (void) fprintf(stderr, "Incorrect canonical result for Section 3.3 '%s'\n", buffer.buffer);
+        exit(1);
+    }
+    WXML_Destroy(doc);
+
+    /* Section 3.4 */
+    /* This has slight mutation because the DOCTYPE controls are not parsed */
+    doc = WXML_Decode("<doc>\n"
+                      "   <text>First line&#x0d;&#10;Second line</text>\n"
+                      "   <value>&#x32;</value>\n"
+                      "   <compute><![CDATA[value>\"0\" && value<\"10\""
+                                " ?\"valid\":\"error\"]]></compute>\n"
+                      "   <compute expr='value>\"0\" &amp;&amp; value&lt;"
+                                "\"10\" ?\"valid\":\"error\"'>valid</compute>\n"
+                      "   <norm attr=' &apos;   &#x20;&#13;&#xa;&#9;"
+                                "   &apos; '/>\n"
+                      "   <normNames attr='A&#x20;&#13;&#xa;&#9; B'/>\n"
+                      "   <normId id='&apos;&#x20;&#13;&#xa;&#9; &apos;'/>\n"
+                      "</doc>",
+                      TRUE, errorMsg, sizeof(errorMsg));
+    if (doc == NULL) {
+        (void) fprintf(stderr, "Failed to parse document 3.4: %s\n", errorMsg);
+        exit(1);
+    }
+    WXBuffer_Empty(&buffer);
+    WXML_Canonicalize(&buffer, doc, NULL);
+    if (strcmp(buffer.buffer,
+               "<doc>\n"
+               "   <text>First line&#xD;\n"
+               "Second line</text>\n"
+               "   <value>2</value>\n"
+               "   <compute>value&gt;\"0\" &amp;&amp; value&lt;\"10\""
+                            " ?\"valid\":\"error\"</compute>\n"
+               "   <compute expr=\"value>&quot;0&quot; &amp;&amp;"
+                            " value&lt;&quot;10&quot; ?&quot;valid&quot;:"
+                            "&quot;error&quot;\">valid</compute>\n"
+               "   <norm attr=\" '    &#xD;&#xA;&#x9;   ' \"></norm>\n"
+               "   <normNames attr=\"A &#xD;&#xA;&#x9; B\"></normNames>\n"
+               "   <normId id=\"' &#xD;&#xA;&#x9; '\"></normId>\n"
+               "</doc>") != 0) {
+        (void) fprintf(stderr, "Incorrect canonical result for Section 3.4\n");
+        exit(1);
+    }
+    WXML_Destroy(doc);
+
+    /* Section 3.5 ignored as it doesn't handle entity references */
+    /* Section 3.6 ignored as it doesn't handle different charset encoding */
+
+    /* Section 3.7 */
+    /* TODO - namespace propagation */
+#if 0
+    doc = WXML_Decode("",
+                      TRUE, errorMsg, sizeof(errorMsg));
+    if (doc == NULL) {
+        (void) fprintf(stderr, "Failed to parse document 3.7: %s\n", errorMsg);
+        exit(1);
+    }
+    WXBuffer_Empty(&buffer);
+    WXML_Canonicalize(&buffer, doc, NULL);
+    if (strcmp(buffer.buffer, "") != 0) {
+        (void) fprintf(stderr, "Incorrect canonical result for Section 3.7\n");
+        exit(1);
+    }
+    WXML_Destroy(doc);
+#endif
+
+    /* Section 3.8 */
+    /* Attribute propagation */
 
     /* Clean up on aisle 3! */
-    WXML_Destroy(doc);
     WXBuffer_Destroy(&buffer);
 
     (void) fprintf(stderr, "All tests passed\n");

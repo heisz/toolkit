@@ -58,7 +58,7 @@ typedef struct WXMLAttribute {
 
 /* Structure representing an XML element/node instance */
 typedef struct WXMLElement {
-    /* The name of the element */
+    /* The name of the element, NULL for retained text fragments */
     char *name;
 
     /* List of namespaces defined for this element and explicit namespace ref */
@@ -136,11 +136,16 @@ WXMLAttribute *WXML_AllocateAttribute(WXMLElement *elmnt, const char *name,
  * Parse/decode XML text, returning a corresponding document representation.
  *
  * @param content The XML document/content to be parsed.
+ * @param retainTextFragments If TRUE (non-zero), text fragments are retained
+ *                            (NULL-named children) and consolidated in parent
+ *                            element.  If FALSE, only consolidated content is
+ *                            captured.
  * @param errorMsg External buffer for returning parsing error details.
  * @param errorMsgLen Length of provided buffer.
  * @return The document root instance, or NULL on parsing or memory failure.
  */
-WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen);
+WXMLElement *WXML_Decode(const char *content, int retainTextFragments,
+                         char *errorMsg, int errorMsgLen);
 
 /**
  * Converse to the above, translate the XML document to text format.
@@ -153,6 +158,22 @@ WXMLElement *WXML_Decode(const char *content, char *errorMsg, int errorMsgLen);
  *         or NULL if memory allocation failure occurred.
  */
 char *WXML_Encode(WXBuffer *buffer, WXMLElement *root, int prettyPrint);
+
+/**
+ * Similar to the previous, but encode the content according to published
+ * specifications for canonicalized XML.  Note that the toolkit XML parser
+ * already discards a lot of elements, so PI's, DOCTYPES's and comments are
+ * never going to appear in the canonicalized form.  Source document must
+ * be parsed with retainTextFragments set to TRUE.
+ *
+ * @param buffer Buffer into which the XML data should be canonicalized.
+ * @param root The XML document (root) to be canonicalized.
+ * @param skip If non-NULL, do not include this node in the canonicalized form
+ *             (signature).
+ * @return The buffer area containing the output document (null terminated)
+ *         or NULL if memory allocation failure occurred.
+ */
+char *WXML_Canonicalize(WXBuffer *buffer, WXMLElement *root, WXMLElement *skip);
 
 /**
  * Find a node from the current node.  This uses a syntax similar to XPath but
