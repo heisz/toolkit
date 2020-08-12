@@ -397,7 +397,7 @@ int main(int argc, char **argv) {
     WXML_Encode(&buffer, doc, FALSE);
     (void) fprintf(stdout, "STANDARD:\n%s\n", buffer.buffer);
     WXBuffer_Empty(&buffer);
-    WXML_Canonicalize(&buffer, doc, NULL);
+    WXML_Canonicalize(&buffer, doc, NULL, TRUE);
     (void) fprintf(stdout, "CANONICAL:\n%s\n", buffer.buffer);
     WXML_Destroy(doc);
 
@@ -423,7 +423,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
     WXBuffer_Empty(&buffer);
-    WXML_Canonicalize(&buffer, doc, NULL);
+    WXML_Canonicalize(&buffer, doc, NULL, TRUE);
     if (strcmp(buffer.buffer, "<doc>Hello, world!</doc>") != 0) {
         (void) fprintf(stderr, "Incorrect canonical result for Section 3.1\n");
         exit(1);
@@ -448,7 +448,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
     WXBuffer_Empty(&buffer);
-    WXML_Canonicalize(&buffer, doc, NULL);
+    WXML_Canonicalize(&buffer, doc, NULL, TRUE);
     if (strcmp(buffer.buffer,
                "<doc>\n"
                "   <clean>   </clean>\n"
@@ -493,7 +493,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
     WXBuffer_Empty(&buffer);
-    WXML_Canonicalize(&buffer, doc, NULL);
+    WXML_Canonicalize(&buffer, doc, NULL, TRUE);
     if (strcmp(buffer.buffer,
                "<doc>\n"
                "   <e1></e1>\n"
@@ -539,7 +539,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
     WXBuffer_Empty(&buffer);
-    WXML_Canonicalize(&buffer, doc, NULL);
+    WXML_Canonicalize(&buffer, doc, NULL, TRUE);
     if (strcmp(buffer.buffer,
                "<doc>\n"
                "   <text>First line&#xD;\n"
@@ -577,7 +577,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
     WXBuffer_Empty(&buffer);
-    WXML_Canonicalize(&buffer, WXML_Find(doc, "e1", FALSE), NULL);
+    WXML_Canonicalize(&buffer, WXML_Find(doc, "e1", FALSE), NULL, TRUE);
     if (strcmp(buffer.buffer,
                "<e1 xmlns=\"http://www.ietf.org\" "
                                          "xmlns:w3c=\"http://www.w3.org\">\n"
@@ -590,8 +590,60 @@ int main(int argc, char **argv) {
     }
     WXML_Destroy(doc);
 
-    /* Section 3.8 */
-    /* Attribute propagation */
+    /* Section 3.8 ignored as we don't get deeply into attribute propagation */
+
+    /* This was a bug when used in SAML signing (NOT VALID) */
+    doc = WXML_Decode("<samlp:Response xmlns:samlp=\"urn:SAML:2.0:protocol\" "
+                             "ID=\"dkjfhdgfuwefwfuwefsdfsfosfsf\" "
+                             "InResponseTo=\"xyzzy\">"
+                        "<Issuer xmlns=\"urn:oasis:SAML:2.0:assertion\">"
+                                       "https://sts.windows.net/706/</Issuer>"
+                        "<Assertion xmlns=\"urn:oasis:SAML:2.0:assertion\" "
+                                    "ID=\"dfgdljfgddfjdsfhslfdjhdsflsjdf\">"
+                          "<Issuer>https://sts.windows.net/706/</Issuer>"
+                          "<Signature xmlns=\"http://www.w3.org/xmldsig#\">"
+                            "<SignedInfo>"
+                              "<CanonicalizationMethod Algorithm=\"exc-c14\"/>"
+                              "<SignatureMethod Algorithm=\"xmldsig\"/>"
+                            "</SignedInfo>"
+                          "</Signature>"
+                        "</Assertion>"
+                      "</samlp:Response>",
+                      TRUE, errorMsg, sizeof(errorMsg));
+    if (doc == NULL) {
+        (void) fprintf(stderr, "Failed to parse SAML: %s\n", errorMsg);
+        exit(1);
+    }
+    WXBuffer_Empty(&buffer);
+    WXML_Canonicalize(&buffer, WXML_Find(doc, "Signature", TRUE), NULL, TRUE);
+    if (strcmp(buffer.buffer,
+               "<Signature xmlns=\"http://www.w3.org/xmldsig#\" "
+                          "xmlns:samlp=\"urn:SAML:2.0:protocol\">"
+                 "<SignedInfo>"
+                   "<CanonicalizationMethod Algorithm=\"exc-c14\">"
+                                             "</CanonicalizationMethod>"
+                   "<SignatureMethod Algorithm=\"xmldsig\"></SignatureMethod>"
+                 "</SignedInfo>"
+               "</Signature>") != 0) {
+        (void) fprintf(stderr, "Incorrect canonical result for SAML\n");
+        exit(1);
+    }
+
+    /* Same source for test case of exclusive canonicalization */
+    WXBuffer_Empty(&buffer);
+    WXML_Canonicalize(&buffer, WXML_Find(doc, "Signature", TRUE), NULL, FALSE);
+    if (strcmp(buffer.buffer,
+               "<Signature xmlns=\"http://www.w3.org/xmldsig#\">"
+                 "<SignedInfo>"
+                   "<CanonicalizationMethod Algorithm=\"exc-c14\">"
+                                             "</CanonicalizationMethod>"
+                   "<SignatureMethod Algorithm=\"xmldsig\"></SignatureMethod>"
+                 "</SignedInfo>"
+               "</Signature>") != 0) {
+        (void) fprintf(stderr, "Incorrect canonical result for SAML excl\n");
+        exit(1);
+    }
+    WXML_Destroy(doc);
 
     /* Clean up on aisle 3! */
     WXBuffer_Destroy(&buffer);

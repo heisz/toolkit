@@ -170,10 +170,14 @@ char *WXML_Encode(WXBuffer *buffer, WXMLElement *root, int prettyPrint);
  * @param root The XML document (root) to be canonicalized.
  * @param skip If non-NULL, do not include this node in the canonicalized form
  *             (signature).
+ * @param isInclusive If TRUE (non-zero), canonicalization will be inclusive
+ *                    for enveloped namespaces.  If FALSE, the canonicalization
+ *                    will be exclusive (localized).
  * @return The buffer area containing the output document (null terminated)
  *         or NULL if memory allocation failure occurred.
  */
-char *WXML_Canonicalize(WXBuffer *buffer, WXMLElement *root, WXMLElement *skip);
+char *WXML_Canonicalize(WXBuffer *buffer, WXMLElement *root, WXMLElement *skip,
+                        int isInclusive);
 
 /**
  * Find a node from the current node.  This uses a syntax similar to XPath but

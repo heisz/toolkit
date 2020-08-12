@@ -929,7 +929,7 @@ static char *_encodeAttribute(WXBuffer *buffer, WXMLAttribute *attr,
 }
 
 /* Internal recursion method for encoding */
-/* Format is 1 for pretty, 0 for standard, -1 for canonical */
+/* Format is 1 for pretty, 0 for standard, -1/-2 for canonical inc/exc*/
 static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
                             WXMLElement *skip, int format, int indent) {
     int idx, l, cnt, isFirst = TRUE, leader, hasChildElement, isDup;
@@ -969,6 +969,7 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
         }
     } else {
         /* First count namespaces, including inheritance if top-encode */
+        /* Note that this may overallocate for exclusive c14n, whatever... */
         cnt = 0;
         while (ns != NULL) {
             if ((ns->origin != elmnt) && (indent != 0)) break;
@@ -983,7 +984,14 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
         ns = elmnt->namespaceSet;
         cnt = 0;
         while (ns != NULL) {
-            if ((ns->origin != elmnt) && (indent != 0)) break;
+            if (format == -1) {
+                /* Inherit parent namespaces for the top encode node */
+                if ((ns->origin != elmnt) && (indent != 0)) break;
+            } else {
+                /* This relies on truly exclusive and self-contained XML */
+                /* Does not follow the xml-enc-c14n spec for rendering (3.1) */
+                if (ns->origin != elmnt) break;
+            }
 
             /* Scan the higher namespace set for a superfluous instance */
             isDup = FALSE;
@@ -1003,6 +1011,17 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
             /* Special case, no duplicate but top-level blank default ns */
             if ((nsChk == NULL) &&
                  (*(ns->prefix) == '\0') && (*(ns->href) == '\0')) isDup = TRUE;
+
+            /* Other special case, do not include already rendered ns */
+            if (ns->origin != elmnt) {
+                for (idx = 0; idx < cnt; idx++) {
+                    if (strcmp(nsSort[idx]->prefix, ns->prefix) == 0) {
+                        /* Namespace prefix is already rendered */
+                        isDup = TRUE;
+                        break;
+                    }
+                }
+            }
 
             if (!isDup) nsSort[cnt++] = ns;
             ns = ns->next;
@@ -1165,12 +1184,16 @@ char *WXML_Encode(WXBuffer *buffer, WXMLElement *root, int prettyPrint) {
  * @param root The XML document (root) to be canonicalized.
  * @param skip If non-NULL, do not include this node in the canonicalized form
  *             (signature).
+ * @param isInclusive If TRUE (non-zero), canonicalization will be inclusive
+ *                    for enveloped namespaces.  If FALSE, the canonicalization
+ *                    will be exclusive (localized).
  * @return The buffer area containing the output document (null terminated)
  *         or NULL if memory allocation failure occurred.
  */
 char *WXML_Canonicalize(WXBuffer *buffer, WXMLElement *root,
-                        WXMLElement *skip) {
-    if (_encodeElement(buffer, root, skip, -1, 0) == NULL) return NULL;
+                        WXMLElement *skip, int isInclusive) {
+    if (_encodeElement(buffer, root, skip,
+                       (isInclusive) ? -1 : -2, 0) == NULL) return NULL;
     if (WXBuffer_Append(buffer, "\0", 1, TRUE) == NULL) return NULL;
     return buffer->buffer;
 }
