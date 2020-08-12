@@ -563,22 +563,32 @@ int main(int argc, char **argv) {
     /* Section 3.6 ignored as it doesn't handle different charset encoding */
 
     /* Section 3.7 */
-    /* TODO - namespace propagation */
-#if 0
-    doc = WXML_Decode("",
+    doc = WXML_Decode("<doc xmlns=\"http://www.ietf.org\" "
+                                           "xmlns:w3c=\"http://www.w3.org\">\n"
+                      "   <e1>\n"
+                      "      <e2 xmlns=\"\">\n"
+                      "         <e3 id=\"E3\"/>\n"
+                      "      </e2>\n"
+                      "   </e1>\n"
+                      "</doc>",
                       TRUE, errorMsg, sizeof(errorMsg));
     if (doc == NULL) {
         (void) fprintf(stderr, "Failed to parse document 3.7: %s\n", errorMsg);
         exit(1);
     }
     WXBuffer_Empty(&buffer);
-    WXML_Canonicalize(&buffer, doc, NULL);
-    if (strcmp(buffer.buffer, "") != 0) {
+    WXML_Canonicalize(&buffer, WXML_Find(doc, "e1", FALSE), NULL);
+    if (strcmp(buffer.buffer,
+               "<e1 xmlns=\"http://www.ietf.org\" "
+                                         "xmlns:w3c=\"http://www.w3.org\">\n"
+               "      <e2 xmlns=\"\">\n"
+               "         <e3 id=\"E3\"></e3>\n"
+               "      </e2>\n"
+               "   </e1>") != 0) {
         (void) fprintf(stderr, "Incorrect canonical result for Section 3.7\n");
         exit(1);
     }
     WXML_Destroy(doc);
-#endif
 
     /* Section 3.8 */
     /* Attribute propagation */

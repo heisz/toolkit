@@ -634,7 +634,7 @@ WXMLElement *WXML_Decode(const char *content, int retainTextFragments,
                             type = WXMLTK_ERROR;
                             break;
                         }
-                        
+
                         /* Hook it all together, remove identifier marker */
                         offset = (nm[5] == ':') ? 6 : 5;
                         (void) memmove(nm, nm + offset,
@@ -855,15 +855,88 @@ memfail:
     return NULL;
 }
 
+/* Comparator functions for canonical namespace/attribute sorting */
+static int _nsCompar(const void *a, const void *b) {
+    WXMLNamespace *org = *((WXMLNamespace **) a);
+    WXMLNamespace *cmp = *((WXMLNamespace **) b);
+
+    /* Default namespace always comes first */
+    if (*(org->prefix) == '\0') return -1;
+    if (*(cmp->prefix) == '\0') return 1;
+
+    /* Otherwise it's in order of prefix */
+    return strcmp(org->prefix, cmp->prefix);
+}
+static int _attrCompar(const void *a, const void *b) {
+    WXMLAttribute *org = *((WXMLAttribute **) a);
+    WXMLAttribute *cmp = *((WXMLAttribute **) b);
+    int orgHasNs = ((org->namespace != NULL) &&
+                        (*(org->namespace->prefix) != '\0')) ? TRUE : FALSE;
+    int cmpHasNs = ((cmp->namespace != NULL) &&
+                        (*(cmp->namespace->prefix) != '\0')) ? TRUE : FALSE;
+    int cval;
+
+    /* Unqualified attributes come first and are ordered by name */
+    if ((!orgHasNs) && (!cmpHasNs)) {
+        return strcmp(org->name, cmp->name);
+    }
+    if (!orgHasNs) return -1;
+    if (!cmpHasNs) return 1;
+
+    /* Both have namespaces, c14n orders by *URI* then name */
+    cval = strcmp(org->namespace->href, cmp->namespace->href);
+    if (cval != 0) return cval;
+    return strcmp(org->name, cmp->name);
+}
+
+/* Common methods for writing namespace and attribute entries */
+static char *_encodeNamespace(WXBuffer *buffer, WXMLNamespace *ns,
+                              int isCanonical) {
+    if (WXBuffer_Append(buffer, " xmlns", 6, TRUE) == NULL) return NULL;
+    if (*(ns->prefix) != '\0') {
+        if (WXBuffer_Append(buffer, ":", 1, TRUE) == NULL) return NULL;
+        if (WXBuffer_Append(buffer, ns->prefix, strlen(ns->prefix),
+                            TRUE) == NULL) return NULL;
+    }
+
+    if (WXBuffer_Append(buffer, "=\"", 2, TRUE) == NULL) return NULL;
+    if (WXML_EscapeAttribute(buffer, ns->href, -1,
+                             isCanonical) == NULL) return NULL;
+    if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return NULL;
+
+    return buffer->buffer;
+}
+static char *_encodeAttribute(WXBuffer *buffer, WXMLAttribute *attr,
+                              int isCanonical) {
+    if (WXBuffer_Append(buffer, " ", 1, TRUE) == NULL) return NULL;
+    if ((attr->namespace != NULL) && (*(attr->namespace->prefix) != '\0')) {
+        if (WXBuffer_Append(buffer, attr->namespace->prefix,
+                            strlen(attr->namespace->prefix),
+                            TRUE) == NULL) return NULL;
+        if (WXBuffer_Append(buffer, ":", 1, TRUE) == NULL) return NULL;
+    }
+    if (WXBuffer_Append(buffer, attr->name, strlen(attr->name),
+                        TRUE) == NULL) return NULL;
+
+    if (attr->value != NULL) {
+        if (WXBuffer_Append(buffer, "=\"", 2, TRUE) == NULL) return NULL;
+        if (WXML_EscapeAttribute(buffer, attr->value, -1,
+                                 isCanonical) == NULL) return NULL;
+        if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return NULL;
+    }
+
+    return buffer->buffer;
+}
+
 /* Internal recursion method for encoding */
 /* Format is 1 for pretty, 0 for standard, -1 for canonical */
 static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
                             int format, int indent) {
-    WXMLNamespace *ns = elmnt->namespaceSet;
-    WXMLAttribute *attr = elmnt->attributes;
-    WXMLElement *child = elmnt->children;
-    int l, isFirst = TRUE, leader, hasChildElement;
+    int idx, l, cnt, isFirst = TRUE, leader, hasChildElement, isDup;
+    WXMLNamespace *ns = elmnt->namespaceSet, **nsSort, *nsChk;
+    WXMLAttribute *attr = elmnt->attributes, **attrSort;
     int isCanonical = (format < 0) ? TRUE : FALSE;
+    WXMLElement *child = elmnt->children;
     char *start, *end;
 
     leader = 4 * indent + 1;
@@ -879,57 +952,113 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
                         TRUE) == NULL) return NULL;
     leader += l;
 
-    /* Owned namespaces appear first */
-    while (ns != NULL) {
-        if (ns->origin != elmnt) break;
+    /* Owned namespaces appear first or more complex c14n ordering */
+    if (!isCanonical) {
+        while (ns != NULL) {
+            if (ns->origin != elmnt) break;
 
-        if ((format > 0) && (!isFirst)) {
-            if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
-            if (WXIndent(buffer, leader) == NULL) return NULL;
+            if ((format > 0) && (!isFirst)) {
+                if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
+                if (WXIndent(buffer, leader) == NULL) return NULL;
+            }
+
+            if (_encodeNamespace(buffer, ns, FALSE) == NULL) return NULL;
+
+            isFirst = FALSE;
+            ns = ns->next;
+        }
+    } else {
+        /* First count namespaces, including inheritance if top-encode */
+        cnt = 0;
+        while (ns != NULL) {
+            if ((ns->origin != elmnt) && (indent != 0)) break;
+            cnt++;
+            ns = ns->next;
         }
 
-        if (WXBuffer_Append(buffer, " xmlns", 6, TRUE) == NULL) return NULL;
-        if (*(ns->prefix) != '\0') {
-            if (WXBuffer_Append(buffer, ":", 1, TRUE) == NULL) return NULL;
-            if (WXBuffer_Append(buffer, ns->prefix, strlen(ns->prefix),
-                                TRUE) == NULL) return NULL;
+        /* Allocate the sorting array and populate, without duplicates */
+        nsSort = (WXMLNamespace **) WXCalloc(cnt * sizeof(WXMLNamespace *));
+        if (nsSort == NULL) return NULL;
+
+        ns = elmnt->namespaceSet;
+        cnt = 0;
+        while (ns != NULL) {
+            if ((ns->origin != elmnt) && (indent != 0)) break;
+
+            /* Scan the higher namespace set for a superfluous instance */
+            isDup = FALSE;
+            nsChk = ns->next;
+            while (nsChk != NULL) {
+                if (strcmp(ns->prefix, nsChk->prefix) == 0) {
+                    if (strcmp(ns->href, nsChk->href) == 0) {
+                        /* Exact match, this namespace is superfluous */
+                        isDup = TRUE;
+                    }
+                    /* Matching prefix, stop looking */
+                    break;
+                }
+                nsChk = nsChk->next;
+            }
+
+            /* Special case, no duplicate but top-level blank default ns */
+            if ((nsChk == NULL) &&
+                 (*(ns->prefix) == '\0') && (*(ns->href) == '\0')) isDup = TRUE;
+
+            if (!isDup) nsSort[cnt++] = ns;
+            ns = ns->next;
         }
 
-        if (WXBuffer_Append(buffer, "=\"", 2, TRUE) == NULL) return NULL;
-        if (WXML_EscapeAttribute(buffer, ns->href, -1,
-                                 isCanonical) == NULL) return NULL;
-        if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return NULL;
+        /* Then sort */
+        qsort(nsSort, cnt, sizeof(WXMLNamespace *), _nsCompar);
 
-        isFirst = FALSE;
-        ns = ns->next;
+        /* And output */
+        for (idx = 0; idx < cnt; idx++) {
+            ns = nsSort[idx];
+            if (_encodeNamespace(buffer, ns, TRUE) == NULL) return NULL;
+        }
+        WXFree(nsSort);
     }
 
-    /* Then attributes */
-    while (attr != NULL) {
-        if ((format > 0) && (!isFirst)) {
-            if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
-            if (WXIndent(buffer, leader) == NULL) return NULL;
+    /* For attributes, similar idea */
+    if (!isCanonical) {
+        while (attr != NULL) {
+            if ((format > 0) && (!isFirst)) {
+                if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
+                if (WXIndent(buffer, leader) == NULL) return NULL;
+            }
+
+            if (_encodeAttribute(buffer, attr, FALSE) == NULL) return NULL;
+
+            isFirst = FALSE;
+            attr = attr->next;
+        }
+    } else {
+        /* Allocate a sorting array of attribute values */
+        cnt = 0;
+        while (attr != NULL) {
+            cnt++;
+            attr = attr->next;
         }
 
-        if (WXBuffer_Append(buffer, " ", 1, TRUE) == NULL) return NULL;
-        if ((attr->namespace != NULL) && (*(attr->namespace->prefix) != '\0')) {
-            if (WXBuffer_Append(buffer, attr->namespace->prefix,
-                                strlen(attr->namespace->prefix),
-                                TRUE) == NULL) return NULL;
-            if (WXBuffer_Append(buffer, ":", 1, TRUE) == NULL) return NULL;
-        }
-        if (WXBuffer_Append(buffer, attr->name, strlen(attr->name),
-                            TRUE) == NULL) return NULL;
+        attrSort = (WXMLAttribute **) WXCalloc(cnt * sizeof(WXMLAttribute *));
+        if (attrSort == NULL) return NULL;
 
-        if (attr->value != NULL) {
-            if (WXBuffer_Append(buffer, "=\"", 2, TRUE) == NULL) return NULL;
-            if (WXML_EscapeAttribute(buffer, attr->value, -1,
-                                     isCanonical) == NULL) return NULL;
-            if (WXBuffer_Append(buffer, "\"", 1, TRUE) == NULL) return NULL;
+        attr = elmnt->attributes;
+        cnt = 0;
+        while (attr != NULL) {
+            attrSort[cnt++] = attr;
+            attr = attr->next;
         }
 
-        isFirst = FALSE;
-        attr = attr->next;
+        /* Then sort */
+        qsort(attrSort, cnt, sizeof(WXMLAttribute *), _attrCompar);
+
+        /* And output */
+        for (idx = 0; idx < cnt; idx++) {
+            attr = attrSort[idx];
+            if (_encodeAttribute(buffer, attr, TRUE) == NULL) return NULL;
+        }
+        WXFree(attrSort);
     }
 
     /* Immediate closure if no content and not canonical */
