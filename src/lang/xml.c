@@ -931,7 +931,7 @@ static char *_encodeAttribute(WXBuffer *buffer, WXMLAttribute *attr,
 /* Internal recursion method for encoding */
 /* Format is 1 for pretty, 0 for standard, -1 for canonical */
 static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
-                            int format, int indent) {
+                            WXMLElement *skip, int format, int indent) {
     int idx, l, cnt, isFirst = TRUE, leader, hasChildElement, isDup;
     WXMLNamespace *ns = elmnt->namespaceSet, **nsSort, *nsChk;
     WXMLAttribute *attr = elmnt->attributes, **attrSort;
@@ -1085,13 +1085,16 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
         }
         hasChildElement = TRUE;
 
-        if (format > 0) {
-            if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
-            if (WXIndent(buffer, (indent + 1) * 4) == NULL) return NULL;
-        }
+        /* Of course, skip encoding elements that are to be skipped */
+        if ((skip == NULL) || (child != skip)) {
+            if (format > 0) {
+                if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
+                if (WXIndent(buffer, (indent + 1) * 4) == NULL) return NULL;
+            }
 
-        if (_encodeElement(buffer, child, format,
-                           indent + 1) == NULL) return NULL;
+            if (_encodeElement(buffer, child, skip, format,
+                               indent + 1) == NULL) return NULL;
+        }
 
         child = child->next;
     }
@@ -1145,7 +1148,7 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
  *         or NULL if memory allocation failure occurred.
  */
 char *WXML_Encode(WXBuffer *buffer, WXMLElement *root, int prettyPrint) {
-    if (_encodeElement(buffer, root,
+    if (_encodeElement(buffer, root, NULL,
                        (prettyPrint) ? 1 : 0, 0) == NULL) return NULL;
     if (WXBuffer_Append(buffer, "\0", 1, TRUE) == NULL) return NULL;
     return buffer->buffer;
@@ -1167,7 +1170,7 @@ char *WXML_Encode(WXBuffer *buffer, WXMLElement *root, int prettyPrint) {
  */
 char *WXML_Canonicalize(WXBuffer *buffer, WXMLElement *root,
                         WXMLElement *skip) {
-    if (_encodeElement(buffer, root, -1, 0) == NULL) return NULL;
+    if (_encodeElement(buffer, root, skip, -1, 0) == NULL) return NULL;
     if (WXBuffer_Append(buffer, "\0", 1, TRUE) == NULL) return NULL;
     return buffer->buffer;
 }
