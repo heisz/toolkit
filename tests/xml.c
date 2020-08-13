@@ -643,7 +643,50 @@ int main(int argc, char **argv) {
         (void) fprintf(stderr, "Incorrect canonical result for SAML excl\n");
         exit(1);
     }
+    WXBuffer_Empty(&buffer);
+    WXML_Canonicalize(&buffer, WXML_Find(doc, "SignedInfo", TRUE), NULL, FALSE);
+    if (strcmp(buffer.buffer,
+               "<SignedInfo xmlns=\"http://www.w3.org/xmldsig#\">"
+                 "<CanonicalizationMethod Algorithm=\"exc-c14\">"
+                                           "</CanonicalizationMethod>"
+                 "<SignatureMethod Algorithm=\"xmldsig\"></SignatureMethod>"
+               "</SignedInfo>") != 0) {
+        (void) fprintf(stderr, "Incorrect canonical result for xmlns excl\n");
+        exit(1);
+    }
     WXML_Destroy(doc);
+
+    /* Super complicated case to test the namespace rendering rules (3.1) */
+    doc = WXML_Decode("<rt xmlns=\"main\" "
+                              "xmlns:a=\"main-eh\" xmlns:b=\"main-bee\">\n"
+                        "<nest>\n"
+                          "<a:right el=\"xxx\"/>\n"
+                          "<rightoh a:el=\"xxx\"/>\n"
+                          "<left>\n"
+                              "<a:left el=\"xyyz\"/>\n"
+                              "<leftoh b:el=\"xyzzy\"/>\n"
+                          "</left>\n"
+                        "</nest>\n"
+                      "</rt>",
+                      TRUE, errorMsg, sizeof(errorMsg));
+    if (doc == NULL) {
+        (void) fprintf(stderr, "Failed to parse complex: %s\n", errorMsg);
+        exit(1);
+    }
+    WXBuffer_Empty(&buffer);
+    WXML_Canonicalize(&buffer, WXML_Find(doc, "nest", TRUE), NULL, FALSE);
+    if (strcmp(buffer.buffer,
+               "<nest xmlns=\"main\">\n"
+                  "<a:right xmlns:a=\"main-eh\" el=\"xxx\"></a:right>\n"
+                  "<rightoh xmlns:a=\"main-eh\" a:el=\"xxx\"></rightoh>\n"
+                  "<left>\n"
+                      "<a:left xmlns:a=\"main-eh\" el=\"xyyz\"></a:left>\n"
+                      "<leftoh xmlns:b=\"main-bee\" b:el=\"xyzzy\"></leftoh>\n"
+                  "</left>\n"
+                "</nest>") != 0) {
+        (void) fprintf(stderr, "Incorrect canonical result for deep render\n");
+        exit(1);
+    }
 
     /* Clean up on aisle 3! */
     WXBuffer_Destroy(&buffer);

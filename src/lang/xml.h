@@ -39,6 +39,9 @@ typedef struct WXMLNamespace {
 
     /* Next namespace in the element linked list, can point up tree */
     struct WXMLNamespace *next;
+
+    /* For internal use in rendering */
+    uint32_t rflags;
 } WXMLNamespace;
 
 /* Structure representing attributes of an element instance */

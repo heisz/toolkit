@@ -928,15 +928,17 @@ static char *_encodeAttribute(WXBuffer *buffer, WXMLAttribute *attr,
     return buffer->buffer;
 }
 
+#define NS_RENDERED 0x01000000
+
 /* Internal recursion method for encoding */
 /* Format is 1 for pretty, 0 for standard, -1/-2 for canonical inc/exc*/
 static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
                             WXMLElement *skip, int format, int indent) {
-    int idx, l, cnt, isFirst = TRUE, leader, hasChildElement, isDup;
+    int idx, l, cnt, isFirst = TRUE, leader, hasChildElement, excludeNs;
     WXMLNamespace *ns = elmnt->namespaceSet, **nsSort, *nsChk;
-    WXMLAttribute *attr = elmnt->attributes, **attrSort;
     int isCanonical = (format < 0) ? TRUE : FALSE;
     WXMLElement *child = elmnt->children;
+    WXMLAttribute *attr, **attrSort;
     char *start, *end;
 
     leader = 4 * indent + 1;
@@ -968,39 +970,60 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
             ns = ns->next;
         }
     } else {
-        /* First count namespaces, including inheritance if top-encode */
-        /* Note that this may overallocate for exclusive c14n, whatever... */
-        cnt = 0;
-        while (ns != NULL) {
-            if ((ns->origin != elmnt) && (indent != 0)) break;
-            cnt++;
-            ns = ns->next;
-        }
-
-        /* Allocate the sorting array and populate, without duplicates */
-        nsSort = (WXMLNamespace **) WXCalloc(cnt * sizeof(WXMLNamespace *));
-        if (nsSort == NULL) return NULL;
-
-        ns = elmnt->namespaceSet;
+        /* First count namespaces, including inheritance for direct encode */
+        /* Note that this can overallocate for exclusive c14n, whatever... */
         cnt = 0;
         while (ns != NULL) {
             if (format == -1) {
-                /* Inherit parent namespaces for the top encode node */
+                /* Include only my namespaces or tree for root element */
                 if ((ns->origin != elmnt) && (indent != 0)) break;
+                cnt++;
             } else {
-                /* This relies on truly exclusive and self-contained XML */
-                /* Does not follow the xml-enc-c14n spec for rendering (3.1) */
-                if (ns->origin != elmnt) break;
+                /* Reset the rendering flags for the root/owned instance */
+                if ((indent == 0) || (ns->origin == elmnt)) ns->rflags = 0;
+
+                /* Only count those that are not already rendered */
+                if (ns->rflags == 0) cnt++;
             }
 
-            /* Scan the higher namespace set for a superfluous instance */
-            isDup = FALSE;
+            ns = ns->next;
+        }
+
+        /* Allocate the sorting array and populate, according to ruleset */
+        nsSort = (WXMLNamespace **) WXCalloc(cnt * sizeof(WXMLNamespace *));
+        if (nsSort == NULL) return NULL;
+
+        cnt = 0;
+        ns = elmnt->namespaceSet;
+        while (ns != NULL) {
+            /* Differing rules below to determine namespace render inclusion */
+            excludeNs = FALSE;
+
+            if (format == -1) {
+                /* Inclusive rendering, all of mine and root inherit (break) */
+                if ((ns->origin != elmnt) && (indent != 0)) break;
+            } else {
+                /* Exclusive rendering, flip to only include where explicit */
+                /* Also forcibly skip already rendered instances */
+                excludeNs = TRUE;
+                if (ns->rflags == 0) {
+                    if (elmnt->namespace == ns) excludeNs = FALSE;
+                    attr = elmnt->attributes;
+                    while (attr != NULL) {
+                        if (attr->namespace == ns) excludeNs = FALSE;
+                        attr = attr->next;
+                    }
+                }
+            }
+
+            /* Scan the higher namespaces for a superfluous (dup) instance */
             nsChk = ns->next;
             while (nsChk != NULL) {
-                if (strcmp(ns->prefix, nsChk->prefix) == 0) {
+                if ((strcmp(ns->prefix, nsChk->prefix) == 0) &&
+                                                  (nsChk->rflags != 0)) {
                     if (strcmp(ns->href, nsChk->href) == 0) {
                         /* Exact match, this namespace is superfluous */
-                        isDup = TRUE;
+                        excludeNs = TRUE;
                     }
                     /* Matching prefix, stop looking */
                     break;
@@ -1009,21 +1032,24 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
             }
 
             /* Special case, no duplicate but top-level blank default ns */
-            if ((nsChk == NULL) &&
-                 (*(ns->prefix) == '\0') && (*(ns->href) == '\0')) isDup = TRUE;
+            if (((*(ns->prefix) == '\0') && (*(ns->href) == '\0')) &&
+                                              (nsChk == NULL)) excludeNs = TRUE;
 
-            /* Other special case, do not include already rendered ns */
+            /* Other special case, do not inherit already rendered ns */
             if (ns->origin != elmnt) {
                 for (idx = 0; idx < cnt; idx++) {
                     if (strcmp(nsSort[idx]->prefix, ns->prefix) == 0) {
                         /* Namespace prefix is already rendered */
-                        isDup = TRUE;
+                        excludeNs = TRUE;
                         break;
                     }
                 }
             }
 
-            if (!isDup) nsSort[cnt++] = ns;
+            if (!excludeNs) {
+                ns->rflags = NS_RENDERED | indent;
+                nsSort[cnt++] = ns;
+            }
             ns = ns->next;
         }
 
@@ -1040,6 +1066,7 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
 
     /* For attributes, similar idea */
     if (!isCanonical) {
+        attr = elmnt->attributes;
         while (attr != NULL) {
             if ((format > 0) && (!isFirst)) {
                 if (WXBuffer_Append(buffer, "\n", 1, TRUE) == NULL) return NULL;
@@ -1054,6 +1081,7 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
     } else {
         /* Allocate a sorting array of attribute values */
         cnt = 0;
+        attr = elmnt->attributes;
         while (attr != NULL) {
             cnt++;
             attr = attr->next;
@@ -1062,8 +1090,8 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
         attrSort = (WXMLAttribute **) WXCalloc(cnt * sizeof(WXMLAttribute *));
         if (attrSort == NULL) return NULL;
 
-        attr = elmnt->attributes;
         cnt = 0;
+        attr = elmnt->attributes;
         while (attr != NULL) {
             attrSort[cnt++] = attr;
             attr = attr->next;
@@ -1084,7 +1112,7 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
     if ((format >= 0) && (elmnt->children == NULL) &&
                  ((elmnt->content == NULL) || (*(elmnt->content) == '\0'))) {
         if (WXBuffer_Append(buffer, "/>", 2, TRUE) == NULL) return NULL;
-        return buffer->buffer;
+        goto closure;
     } else {
         if (WXBuffer_Append(buffer, ">", 1, TRUE) == NULL) return NULL;
     }
@@ -1152,6 +1180,17 @@ static char *_encodeElement(WXBuffer *buffer, WXMLElement *elmnt,
     if (WXBuffer_Append(buffer, elmnt->name, strlen(elmnt->name),
                         TRUE) == NULL) return NULL;
     if (WXBuffer_Append(buffer, ">", 1, TRUE) == NULL) return NULL;
+
+    /* Man, I must be getting old/lazy to keep using goto's */
+closure:
+    /* For exclusive canonical mode, rewind explicit namespace assignments */
+    if (format == -2) {
+        ns = elmnt->namespaceSet;
+        while (ns != NULL) {
+            if (ns->rflags == (NS_RENDERED | indent)) ns->rflags = 0;
+            ns = ns->next;
+        }
+    }
 
     return buffer->buffer;
 }
