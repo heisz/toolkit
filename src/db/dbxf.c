@@ -200,6 +200,7 @@ int WXDBConnectionPool_Init(WXDBConnectionPool *pool, const char *dsn,
         (void) strcpy(pool->lastErrorMsg, mtxErrorMsg);
         return WXDRC_SYS_ERROR;
     }
+    pool->driver = NULL;
 
     /* Parse the DSN content, starting with the driver */
     ptr = strchr(dsn, ':');
