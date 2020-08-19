@@ -1,11 +1,13 @@
 /*
  * Test methods for the platform-independent thread wrapping functions.
  *
- * Copyright (C) 2003-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2003-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
 #include "thread.h"
+#include "threadpool.h"
+#include "log.h"
 
 /* Two elements to handle thread testing and static initializers */
 static WXThread_Mutex globalLock = WXTHREAD_MUTEX_STATIC_INIT;
@@ -133,6 +135,24 @@ static void keyDestructor(void *arg) {
     destructs[slot] = TRUE;
 }
 
+static int lastTmExit = 0;
+
+/* Worker thread waits for the arg-indicated amount of time */
+static void *worker(void *arg) {
+    int tm = (int) (intptr_t) arg;
+
+    WXLog_Info("Worker (%d) starting", tm);
+    WXThread_USleep(tm * 1000000);
+    WXLog_Info("Worker (%d) finished", tm);
+    lastTmExit = tm;
+}
+
+/* Just so I can embed in the if() */
+static int blip() {
+    WXThread_USleep(100000);
+    return 0;
+}
+
 /**
  * Main testing entry point.
  */
@@ -142,6 +162,7 @@ int main(int argc, char **argv) {
     WXThread_TimeSpec start, end;
     WXThread_Mutex mutex;
     WXThread_Cond cond;
+    WXThreadPool pool;
     int64_t net;
     void *ret;
 
@@ -374,6 +395,148 @@ int main(int argc, char **argv) {
             (void) fprintf(stderr, "Failed to destroy key slot %d\n", idx);
             exit(1);
         }
+    }
+
+    /* Might as well test thread-pooling in here too */
+
+    WXLog_Info("Starting threadpool tests");
+
+    if (WXThreadPool_Init(&pool, 2, 10, 10) != WXTRC_OK) {
+        (void) fprintf(stderr, "Failed to initialize thread pool\n");
+        exit(1);
+    }
+
+    /* Let the threads catch up */
+    WXThread_USleep(500000L);
+
+    WXLog_Info("Queueing 4 jobs for processing");
+
+    /* First test, mixture of jobs to validate the queue-linkages */
+    if ((WXThreadPool_Enqueue(&pool, worker,
+                              (void *) (intptr_t) 4) != WXTRC_OK) ||
+            (blip()) ||
+            (WXThreadPool_Enqueue(&pool, worker,
+                                  (void *) (intptr_t) 2) != WXTRC_OK) ||
+            (blip()) ||
+            (WXThreadPool_Enqueue(&pool, worker,
+                                  (void *) (intptr_t) 8) != WXTRC_OK) ||
+            (blip()) ||
+            (WXThreadPool_Enqueue(&pool, worker,
+                                  (void *) (intptr_t) 6) != WXTRC_OK)) {
+        (void) fprintf(stderr, "Failed to populate worker queue\n");
+        exit(1);
+    }
+
+    WXLog_Info("Entering wait all on four");
+
+    /* Wait for all */
+    if (WXThreadPool_WaitAll(&pool) != WXTRC_OK) {
+        (void) fprintf(stderr, "Failed in first waitall case\n");
+        exit(1);
+    }
+
+    WXLog_Info("Exited wait all on four");
+
+    /* Pool should still have 4 workers hot and ready to go */
+    if (pool.workerCount != 4) {
+        (void) fprintf(stderr, "Incorrect worker count on first wait %ld\n",
+                               pool.workerCount);
+        exit(1);
+    }
+
+    /* And nothing to do */
+    if (pool.queue != NULL) {
+        (void) fprintf(stderr, "Queue left after waitAll()?\n");
+        exit(1);
+    }
+
+    /* Wait for idle threads to cycle down */
+    WXLog_Info("Entering lingering wait");
+    WXThread_USleep(15000000L);
+    if (pool.workerCount != 2) {
+        (void) fprintf(stderr, "Incorrect worker count after linger %ld\n",
+                               pool.workerCount);
+        exit(1);
+    }
+
+    WXLog_Info("Queueing 2 jobs for processing");
+
+    /* Test the specific wait functionality */
+    if ((WXThreadPool_Enqueue(&pool, worker,
+                              (void *) (intptr_t) 4) != WXTRC_OK) ||
+            (blip()) ||
+            (WXThreadPool_Enqueue(&pool, worker,
+                                  (void *) (intptr_t) 2) != WXTRC_OK)) {
+        (void) fprintf(stderr, "Failed to populate worker wait queue\n");
+        exit(1);
+    }
+
+    WXLog_Info("Entering wait on specific");
+
+    if (WXThreadPool_Wait(&pool, worker, (void *) (intptr_t) 2) != WXTRC_OK) {
+        (void) fprintf(stderr, "Failed in wait case\n");
+        exit(1);
+    }
+
+    WXLog_Info("Exiting wait on specific");
+    (void) blip();
+
+    /* Should be one item in the queue, last item was the 2 */
+    if ((pool.queue == NULL) || (lastTmExit != 2)) {
+        (void) fprintf(stderr, "Incorrect working state on wait() result\n");
+        exit(1);
+    }
+
+    /* And one idle worker */
+    if (pool.idleCount != 1) {
+        (void) fprintf(stderr, "Incorrect idle count on wait() result\n");
+        exit(1);
+    }
+
+    WXLog_Info("Entering wait all on remainder");
+
+    /* Wait for all */
+    if (WXThreadPool_WaitAll(&pool) != WXTRC_OK) {
+        (void) fprintf(stderr, "Failed in second waitall case\n");
+        exit(1);
+    }
+
+    WXLog_Info("Exited wait all on remainder");
+
+    /* Mess with limits */
+    pool.maxWorkers = 2;
+
+    WXLog_Info("Queueing 4 jobs for processing (blocking) ");
+
+    /* First test, mixture of jobs to validate the queue-linkages */
+    if ((WXThreadPool_Enqueue(&pool, worker,
+                              (void *) (intptr_t) 4) != WXTRC_OK) ||
+            (blip()) ||
+            (WXThreadPool_Enqueue(&pool, worker,
+                                  (void *) (intptr_t) 2) != WXTRC_OK) ||
+            (blip()) ||
+            (WXThreadPool_Enqueue(&pool, worker,
+                                  (void *) (intptr_t) 8) != WXTRC_OK) ||
+            (blip()) ||
+            (WXThreadPool_Enqueue(&pool, worker,
+                                  (void *) (intptr_t) 6) != WXTRC_OK)) {
+        (void) fprintf(stderr, "Failed to populate worker queue\n");
+        exit(1);
+    }
+
+    WXLog_Info("Terminating pool");
+
+    if (WXThreadPool_Terminate(&pool) != WXTRC_OK) {
+        (void) fprintf(stderr, "Failed in pool termination\n");
+        exit(1);
+    }
+
+    WXLog_Info("Termination complete");
+
+    if (pool.workerCount != 0) {
+        (void) fprintf(stderr, "Leftover workers after terminate? %ld\n",
+                               pool.workerCount);
+        exit(1);
     }
 
     (void) fprintf(stderr, "All tests passed\n");

@@ -46,7 +46,9 @@ json_LDADD = $(top_builddir)/src/lang/json.lo \
 json_LDFLAGS = -static
 
 thread_SOURCES = thread.c
-thread_LDADD = $(top_builddir)/src/utility/thread.lo \
+thread_LDADD = $(top_builddir)/src/utility/threadpool.lo \
+               $(top_builddir)/src/utility/thread.lo \
+               $(top_builddir)/src/utility/log.lo \
                $(top_builddir)/src/utility/mem.lo \
                -ldl -lm
 thread_LDFLAGS = -lpthread -static
