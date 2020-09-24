@@ -157,6 +157,7 @@ WXMLAttribute *WXML_AllocateAttribute(WXMLElement *elmnt, const char *name,
     WXMLAttribute *attr = (WXMLAttribute *) WXCalloc(sizeof(WXMLAttribute));
     if (attr == NULL) return NULL;
 
+    attr->element = elmnt;
     if (!duplicate) {
         attr->name = (char *) name;
         attr->value = (char *) val;

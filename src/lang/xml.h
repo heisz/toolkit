@@ -52,6 +52,9 @@ typedef struct WXMLAttribute {
     /* Namespace reference, if applicable */
     struct WXMLNamespace *namespace;
 
+    /* Element the attribute 'belongs' to */
+    struct WXMLElement *element;
+
     /* Next attribute in the element linked list */
     struct WXMLAttribute *next;
 
