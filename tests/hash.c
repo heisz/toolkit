@@ -1,7 +1,7 @@
 /*
  * Test interface for the hashtable toolkit elements.
  *
- * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -16,8 +16,9 @@ int main(int argc, char **argv) {
     /* At some point, put the MTraq testcase identifiers in here */
 
     /* Snag some bits from the original JEMCC implementation */
-    char bigTable[1024][64], *origKey, *origObj;
+    char bigTable[1024][64], *origKey, *origObj, *val, *cmp;
     WXHashTable hashTable, dupHashTable;
+    WXDictionary dict, dupDict;
     int idx, idy, isSet[1024];
 
     /* Really fill a hashtable */
@@ -166,6 +167,99 @@ int main(int argc, char **argv) {
     }
     WXHash_Destroy(&hashTable);
     WXHash_Destroy(&dupHashTable);
+
+    /* Repeat for the managed dictionaries */
+
+    /* Fill it again, Sam */
+    if (!WXDict_Init(&dict, -1, TRUE)) {
+        (void) fprintf(stderr, "Error: unexpected memory failure\n");
+        exit(1);
+    }
+    for (idx = 0; idx < 1024; idx++) {
+        (void) sprintf(bigTable[idx], "entry-%d", idx);
+
+        if (WXDict_InsertEntry(&dict, bigTable[idx], bigTable[idx]) != 1) {
+            (void) fprintf(stderr, "Big dict insert failure\n");
+            exit(1);
+        }
+        isSet[idx] = 1;
+    }
+
+    /* Random removals (sparse population) */
+    for (idx = 0; idx < 512; idx++) {
+        idy = rand() & 1023;
+        if (WXDict_RemoveEntry(&dict, bigTable[idy])) {
+            if (!isSet[idy]) {
+                (void) fprintf(stderr, "Remove for non-existent entry?\n");
+                exit(1);
+            }
+            isSet[idy] = 0;
+        } else {
+            if (isSet[idy]) {
+                (void) fprintf(stderr, "No remove for existent entry?\n");
+                exit(1);
+            }
+        }
+    }
+
+    /* Exercise the dictionary get/replace/insert models */
+    for (idx = 0; idx < 512; idx++) {
+        idy = rand() & 1023;
+        if ((val = (char *) WXDict_GetEntry(&dict, bigTable[idy])) == NULL) {
+            if (isSet[idy]) {
+                (void) fprintf(stderr, "NULL get for existent entry?\n");
+                exit(1);
+            }
+            if (WXDict_InsertEntry(&dict, bigTable[idy], bigTable[idy]) != 1) {
+                (void) fprintf(stderr, "Big dict insert failure\n");
+                exit(1);
+            }
+            if (!WXDict_PutEntry(&dict, bigTable[idy], bigTable[idy])) {
+                (void) fprintf(stderr, "Big dict put failure\n");
+                exit(1);
+            }
+            isSet[idy] = 1;
+        } else {
+            if (!isSet[idy]) {
+                (void) fprintf(stderr, "Get for non-existent entry?\n");
+                exit(1);
+            }
+            if (strcmp(val, bigTable[idy]) != 0) {
+                (void) fprintf(stderr, "Incorrect record entry\n");
+                exit(1);
+            }
+            if (WXDict_InsertEntry(&dict, bigTable[idy], bigTable[idy]) != -1) {
+                (void) fprintf(stderr, "Insert on duplicate?\n");
+                exit(1);
+            }
+        }
+    }
+
+    /* Duplicate, but make it case-insensitive lookup */
+    if (!WXDict_Duplicate(&dupDict, &dict)) {
+        (void) fprintf(stderr, "Unexpected memory failure on duplicate\n");
+        exit(1);
+    }
+    dupDict.isCaseSensitive = FALSE;
+
+    for (idx = 0; idx < 1024; idx++) {
+        val = (char *) WXDict_GetEntry(&dict, bigTable[idx]);
+        bigTable[idx][0] = 'E';
+        cmp = (char *) WXDict_GetEntry(&dupDict, bigTable[idx]);
+
+        if (((val != NULL) && (cmp == NULL)) ||
+            ((val == NULL) && (cmp != NULL)) ||
+            ((val != NULL) && (cmp != NULL) &&
+                 (strcmp(val, cmp) != 0))) {
+            (void) fprintf(stderr, "Mismatch on value?\n");
+            exit(1);
+        }
+    }
+
+    WXDict_Destroy(&dict);
+    WXDict_Destroy(&dupDict);
+
+    (void) fprintf(stdout, "All tests passed\n");
     exit(0);
 }
 

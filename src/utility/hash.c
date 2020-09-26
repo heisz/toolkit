@@ -355,7 +355,7 @@ int WXHash_RemoveEntry(WXHashTable *table, void *key,
  * Retrieve an object from the hashtable according to the specified key.
  *
  * @param table The hashtable to retrieve the entry from.
- * @param key The key of the object to be obtained
+ * @param key The key of the object to be obtained.
  * @param keyHashFn A function reference used to generate hashcode values
  *                  from the table keys.
  * @param keyEqualsFn A function reference used to compare keys in the
@@ -415,7 +415,7 @@ int WXHash_GetFullEntry(WXHashTable *table, void *key,
  *
  * @param dest The hashtable to copy information into, any entries in this
  *             table will be lost without any sort of cleanup.
- * @param source The hashtable containing the information to be copied
+ * @param source The hashtable containing the information to be copied.
  * @param keyDupFn If non-NULL, this function will be called to duplicate the
  *                 key instances between the tables, otherwise the original
  *                 key reference will be used.
@@ -572,4 +572,220 @@ int WXHash_StrCaseEqualsFn(void *keya, void *keyb) {
     if (*ptrb != '\0') return FALSE;
 
     return TRUE;
+}
+
+/* * * * * * * * * * * Standard Dictionary * * * * * * * * * * */
+
+/**
+ * Initialize a dictionary instance with the given number of base entries.
+ *
+ * @param dict Reference to an existing instance of the dictionary to be
+ *             initialized (already existing entries in the table will not
+ *             be cleaned up).
+ * @param startSize The number of key entries to initially allocate in the
+ *                  dictionary.  If negative, the system default start size
+ *                  will be selected.
+ * @param isCaseSensitive If TRUE, keys will be matched according to case, if
+ *                        FALSE, key matches are case-insensitive (but are *not*
+ *                        lower-cased).
+ * @return TRUE (non-zero) if initialized, FALSE (zero) if memory error occured.
+ */
+int WXDict_Init(WXDictionary *dict, int startSize, int isCaseSensitive) {
+    dict->isCaseSensitive = isCaseSensitive;
+    return WXHash_InitTable(&(dict->base), startSize);
+}
+
+/* Handy callback to free allocated data items */
+static int dictFreeScanner(WXDictionary *dict, const char *key,
+                           const char *val, void *userData) {
+    WXFree((void *) key); WXFree((void *) val);
+    return 0;
+}
+
+/**
+ * Reset/empty the contents of the dictionary.  Resets the internal data as
+ * if it were a newly allocated dictionary.  All keys and values will be freed.
+ *
+ * @param dict The dictionary instance to be emptied.  Note that this will not
+ *             release any internal references.
+ */
+void WXDict_Empty(WXDictionary *dict) {
+    (void) WXDict_Scan(dict, dictFreeScanner, NULL);
+    WXHash_Empty(&(dict->base));
+}
+
+/* At some point I should think of making this method more standard */
+static char *wxstrdup(const char *s) {
+    size_t l = strlen(s);
+    char *st = WXMalloc(l + 1);
+    (void) memcpy(st, s, l + 1);
+    return st;
+}
+
+/**
+ * Store a key/value pair into a dictionary.  Tables will expand as necessary,
+ * value will replace an already existing/matching key entry.  Key/value are
+ * internally duplicated, existing values will be freed.
+ *
+ * @param dict The dictionary to put the key->value pair into.
+ * @param key The key associated with the entry.
+ * @param val The value to store in the dictionary according to the given
+ *            key.  Note that this dictionary implementation cannot store
+ *            NULL values, use an external fixed/static object to represent
+ *            NULL value storage.
+ * @return TRUE if the insertion was successful, FALSE if a memory allocation
+ *         failure occurred.
+ */
+int WXDict_PutEntry(WXDictionary *dict, const char *key, const char *val) {
+    void *oldKey = NULL, *oldVal = NULL;
+    int rc;
+
+    if ((key = wxstrdup(key)) == NULL) return FALSE;
+    if ((val = wxstrdup(val)) == NULL) {
+        WXFree((void *) key);
+        return FALSE;
+    }
+    rc = WXHash_PutEntry(&(dict->base), (void *) key, (void *) val,
+                         &oldKey, &oldVal,
+                         (dict->isCaseSensitive) ? WXHash_StrHashFn :
+                                                   WXHash_StrCaseHashFn,
+                         (dict->isCaseSensitive) ? WXHash_StrEqualsFn :
+                                                   WXHash_StrCaseEqualsFn);
+    if (!rc) {
+        WXFree((void *) key); WXFree((void *) val);
+        return rc;
+    }
+    if (oldKey != NULL) WXFree(oldKey);
+    if (oldVal != NULL) WXFree(oldVal);
+    return rc;
+}
+
+/**
+ * Almost identical to the PutEntry method, this method stores a value in the
+ * dictionary unless there already exists an entry in the dictionary with an
+ * "equal" key (i.e. this method will not replace already existing dictionary
+ * entries where PutEntry does).  If inserted, key/value pairs are duplicated.
+ *
+ * @param dict The dictionary to insert the key->value pair into.
+ * @param key The key associated with the entry.
+ * @param val The value to store in the dictionary according to the given
+ *            key.  Note that this dictionary implementation cannot store
+ *            NULL values, use an external fixed/static object to represent
+ *            NULL value storage.
+ * @return 1 if the insertion was successful, 0 if a memory allocation failure
+ *         occurred and -1 if an entry already existed for the given key.
+ */
+int WXDict_InsertEntry(WXDictionary *dict, const char *key, const char *val) {
+    void *oldKey = NULL, *oldVal = NULL;
+    int rc;
+
+    if ((key = wxstrdup(key)) == NULL) return 0;
+    if ((val = wxstrdup(val)) == NULL) {
+        WXFree((void *) key);
+        return 0;
+    }
+    rc = WXHash_InsertEntry(&(dict->base), (void *) key, (void *) val,
+                            &oldKey, &oldVal,
+                            (dict->isCaseSensitive) ? WXHash_StrHashFn :
+                                                      WXHash_StrCaseHashFn,
+                            (dict->isCaseSensitive) ? WXHash_StrEqualsFn :
+                                                      WXHash_StrCaseEqualsFn);
+    if (!rc) {
+        WXFree((void *) key); WXFree((void *) val);
+        return (oldKey == NULL) ? 0 : -1;
+    }
+    return 1;
+}
+
+/**
+ * Remove an entry from the dictionary.  This will automatically clean up
+ * the internal key/value content.  NOTE: this method is safe to be called
+ * within the Scan function, as it does not perform hash compaction.
+ *
+ * @param dict The dictionary to remove the entry from.
+ * @param key The key of the pair entry to be removed.  Only has to match
+ *            in equality, does not have to be the exact key instance.
+ * @return TRUE if an entry was found and removed, FALSE if key is not found.
+ */
+int WXDict_RemoveEntry(WXDictionary *dict, const char *key) {
+    void *oldKey = NULL, *oldVal = NULL;
+    int rc;
+
+    rc = WXHash_RemoveEntry(&(dict->base), (void *) key, &oldKey, &oldVal,
+                            (dict->isCaseSensitive) ? WXHash_StrHashFn :
+                                                      WXHash_StrCaseHashFn,
+                            (dict->isCaseSensitive) ? WXHash_StrEqualsFn :
+                                                      WXHash_StrCaseEqualsFn);
+    if (oldKey != NULL) WXFree(oldKey);
+    if (oldVal != NULL) WXFree(oldVal);
+    return rc;
+}
+
+/**
+ * Retrieve a value from the dictionary according to the specified key.
+ *
+ * @param dict The dictionary to retrieve the entry from.
+ * @param key The key of the value to be obtained.
+ * @return NULL if no value is found for the matching key, otherwise the 
+ *         value entry.  Note that this is a reference to the internally
+ *         managed duplicate, consider it read only.
+ */
+const char *WXDict_GetEntry(WXDictionary *dict, const char *key) {
+    return (const char *)
+              WXHash_GetEntry(&(dict->base), (void *) key,
+                              (dict->isCaseSensitive) ? WXHash_StrHashFn :
+                                                        WXHash_StrCaseHashFn,
+                              (dict->isCaseSensitive) ? WXHash_StrEqualsFn :
+                                                        WXHash_StrCaseEqualsFn);
+}
+
+/* Simplest module is to just insert from the scan */
+static int dictDupScanner(WXDictionary *dict, const char *key,
+                          const char *val, void *userData) {
+    return !WXDict_InsertEntry((WXDictionary *) userData, key, val);
+}
+
+/**
+ * Duplicate the given dictionary.  This will completely duplicate the keys,
+ * values and internal table instances.
+ *
+ * @param dest The dictionary to copy information into, any entries in this
+ *             dict will be lost without any sort of cleanup.
+ * @param source The dictionary containing the information to be copied.
+ * @return TRUE if the dictionary was successfully duplicated, FALSE if a
+ *         memory allocation failure occurred.  Note that the dictionary may
+ *         be partially filled, if failure occurred during duplication.
+ */
+int WXDict_Duplicate(WXDictionary *dest, WXDictionary *source) {
+    if (!WXDict_Init(dest, source->base.occupied,
+                     source->isCaseSensitive)) return FALSE;
+    return WXDict_Scan(source, dictDupScanner, dest) ? FALSE : TRUE;
+}
+
+/**
+ * Scan through all entries in a dictionary, calling the specified callback
+ * function for each valid dictionary entry.
+ *
+ * @param dict The dictionary containing the entries to be scanned.
+ * @param entryCB A function reference which is called for each valid entry
+ *                in the dictionary.
+ * @param userData A caller provided data object which is included in the
+ *                 scan callback arguments.
+ * @return Zero if the scan was completed, any other value indicates the scan
+ *         was interrupted by the callback with the given value.
+ */
+int WXDict_Scan(WXDictionary *dict, WXDictionaryScanCB entryCB,
+                void *userData) {
+    return WXHash_Scan(&(dict->base), (WXHashEntryScanCB) entryCB, userData);
+}
+
+/**
+ * Destroy the internals of the dictionary instance.  This does not free the
+ * dictionary structure itself, just the contained key/value/hash content.
+ *
+ * @param dict The dictionary instance to destroy.
+ */
+void WXDict_Destroy(WXDictionary *dict) {
+    (void) WXDict_Scan(dict, dictFreeScanner, NULL);
+    WXHash_Destroy(&(dict->base));
 }
