@@ -90,6 +90,32 @@ uint8_t *WXBuffer_EnsureCapacity(WXBuffer *buffer, size_t capacity,
                                  int consume);
 
 /**
+ * Duplicate the contents from one buffer to another.  Both buffers must be
+ * initialized.
+ *
+ * @param dest The buffer to copy into (will be erased).
+ * @param source The buffer to copy from.
+ * @return Reference to the internal buffer if successfully (re)allocated or
+ *         NULL on a memory allocation failure.
+ */
+uint8_t *WXBuffer_Duplicate(WXBuffer *dest, WXBuffer *source);
+
+/**
+ * While most of the methods append to the buffer, one method to inject
+ * content at the start of the buffer.
+ *
+ * @param buffer The buffer to insert into (at the offset).
+ * @param data Reference to the block of binary data to be inserted.
+ * @param length Length (in bytes) of the block to insert.
+ * @param consume If TRUE (non-zero) and a resize is required for capacity,
+ *                all information up to the streaming offset will be discarded.
+ * @return Reference to the internal buffer if successfully (re)allocated or
+ *         NULL on a memory allocation failure.
+ */
+uint8_t *WXBuffer_Insert(WXBuffer *buffer, uint8_t *data, size_t length,
+                         int consume);
+
+/**
  * Append a block of binary data to the contents of the buffer, expanding the
  * internal buffer as necessary.
  *

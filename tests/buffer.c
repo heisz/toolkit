@@ -30,8 +30,8 @@ int main(int argc, char **argv) {
 
 /* Basic test elements for the buffer (most of what it does) */
 static void testBasics() {
-    uint8_t localBuffer[64];
-    WXBuffer buffer;
+    uint8_t localBuffer[64], dupBuffer[64];
+    WXBuffer buffer, dup;
     char *bigValue = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, "
                      "sed do eiusmod tempor incididunt ut labore et dolore "
                      "magna aliqua. Ut enim ad minim veniam, quis nostrud "
@@ -71,14 +71,47 @@ static void testBasics() {
        exit(1);
     }
 
+    WXBuffer_InitLocal(&dup, dupBuffer, sizeof(dupBuffer));
+    if (WXBuffer_Duplicate(&dup, &buffer) == NULL) {
+       (void) fprintf(stderr, "Duplicate failure\n");
+       exit(1);
+    }
+    if (dup.length != 2 * strlen(bigValue)) {
+       (void) fprintf(stderr, "Incorrect length for duplicate\n");
+       exit(1);
+    }
+    if ((memcmp(dup.buffer, bigValue, strlen(bigValue)) != 0) ||
+        (memcmp(dup.buffer + strlen(bigValue), bigValue,
+                strlen(bigValue)) != 0)) {
+       (void) fprintf(stderr, "Incorrect content for duplicate\n");
+       exit(1);
+    }
+
+    if (WXBuffer_Insert(&dup, bigValue, 123, TRUE) == NULL) {
+       (void) fprintf(stderr, "Insert failure\n");
+       exit(1);
+    }
+    if (dup.length != 2 * strlen(bigValue) + 123) {
+       (void) fprintf(stderr, "Incorrect length for insert\n");
+       exit(1);
+    }
+    if ((memcmp(dup.buffer, bigValue, 123) != 0) ||
+        (memcmp(dup.buffer + 123, bigValue, strlen(bigValue)) != 0) ||
+        (memcmp(dup.buffer + 123 + strlen(bigValue), bigValue,
+                strlen(bigValue)) != 0)) {
+       (void) fprintf(stderr, "Incorrect content for insert\n");
+       exit(1);
+    }
+    WXBuffer_Destroy(&dup);
+
     WXBuffer_Empty(&buffer);
     if (WXBuffer_Printf(&buffer, "Test '%s' %d", "test", 12) == NULL) {
-       (void) fprintf(stderr, "Failed to print to buffer");
+       (void) fprintf(stderr, "Failed to print to buffer\n");
        exit(1);
     }
     if ((buffer.length != 14) ||
             (strncmp(buffer.buffer, "Test 'test' 12", 14) != 0)) {
-       (void) fprintf(stderr, "Incorrect result for print");
+       (void) fprintf(stderr, "Incorrect result for print\n");
        exit(1);
     }
     WXBuffer_Destroy(&buffer);
