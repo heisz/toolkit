@@ -248,7 +248,7 @@ void _WXLog_Binary(const char *fileName, const int lineNum, WXLogLevel level,
         if (column == 0) {
             *(str++) = ' ';
             len = strlen(charBuffer);
-            (void) strncpy(str, charBuffer, len);
+            (void) memcpy(str, charBuffer, len);
             str += len;
             (void) strcpy(str, "\n    ");
             str += 5;
@@ -258,7 +258,7 @@ void _WXLog_Binary(const char *fileName, const int lineNum, WXLogLevel level,
         hexVal = ((int) *content) & 0xFF;
         (void) sprintf(hexStr, "%02x ", hexVal);
         len = strlen(hexStr);
-        (void) strncpy(str, hexStr, len);
+        (void) memcpy(str, hexStr, len);
         str += len;
 
         if ((hexVal > 31) && (hexVal < 128)) {
@@ -283,7 +283,7 @@ void _WXLog_Binary(const char *fileName, const int lineNum, WXLogLevel level,
     }
     *(str++) = ' ';
     len = strlen(charBuffer);
-    (void) strncpy(str, charBuffer, len);
+    (void) memcpy(str, charBuffer, len);
     str += len;
     *str = '\0';
 
