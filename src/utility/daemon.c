@@ -43,7 +43,7 @@ void daemonStart(const char *rootDir, const char *appName,
 
     /* Begin the long slippery slope to d(a)emonic behaviour */
     if ((childpid = fork()) < 0) {
-        (void) fprintf(stderr, "Unable to fork daemon process: %s.",
+        (void) fprintf(stderr, "Unable to fork daemon process: %s.\n",
                        strerror(errno));
         exit(1);
     } else if (childpid > 0) {
@@ -59,14 +59,14 @@ void daemonStart(const char *rootDir, const char *appName,
     sigemptyset(&(sigAction.sa_mask));
     sigAction.sa_flags = 0;
     if (sigaction(SIGHUP, &sigAction, NULL) != 0) {
-        (void) fprintf(stderr, "Unable to ignore HUP signal: %s.",
+        (void) fprintf(stderr, "Unable to ignore HUP signal: %s.\n",
                        strerror(errno));
         exit(1);
     }
 
     /* And fork again to completely lose the process group (no tty) */
     if ((childpid = fork()) < 0) {
-        (void) fprintf(stderr, "Unable to fork daemon process (again): %s.",
+        (void) fprintf(stderr, "Unable to fork daemon process (again): %s.\n",
                        strerror(errno));
         exit(1);
     } else if (childpid > 0) {
@@ -77,7 +77,7 @@ void daemonStart(const char *rootDir, const char *appName,
     /* Head for home and reset file permissions */
     /* In theory, both of these should check for error, can't void the first */
     if (chdir(rootDir) < 0) {
-        (void) fprintf(stderr, "Unable to change to root directory %s: %s.",
+        (void) fprintf(stderr, "Unable to change to root directory %s: %s.\n",
                        rootDir, strerror(errno));
     }
     (void) umask(0);
