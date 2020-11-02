@@ -7,7 +7,7 @@
 #
 
 # Just a bunch of test programs
-bin_PROGRAMS = array buffer db encoding hash json thread xml
+bin_PROGRAMS = array buffer db encoding hash json network thread xml
 
 # Lots of test cases
 array_SOURCES = array.c
@@ -44,6 +44,14 @@ json_LDADD = $(top_builddir)/src/lang/json.lo \
              $(top_builddir)/src/utility/mem.lo \
              -ldl -lm
 json_LDFLAGS = -static
+
+network_SOURCES = network.c
+network_LDADD = $(top_builddir)/src/network/stream.lo \
+                $(top_builddir)/src/network/socket.lo \
+                $(top_builddir)/src/utility/buffer.lo \
+                $(top_builddir)/src/utility/mem.lo \
+                -lssl -lcrypto -ldl -lm
+network_LDFLAGS = -static
 
 thread_SOURCES = thread.c
 thread_LDADD = $(top_builddir)/src/utility/threadpool.lo \

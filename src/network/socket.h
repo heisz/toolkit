@@ -19,7 +19,7 @@
 #define WXNRC_MEM_ERROR -2
 #define WXNRC_SYS_ERROR -1
 
-/* State codes are a bitset (dependent on context) */
+/* State response codes are a bitset (dependent on context) */
 #define WXNRC_OK 0
 #define WXNRC_OK_WITH_DATA 1
 #define WXNRC_READ_REQUIRED 2
@@ -60,6 +60,15 @@ int WXSocket_GetLastErrNo();
  * @return The error string assocated to the provided error number.
  */
 const char *WXSocket_GetErrorStr(int serrno);
+
+/**
+ * Similar to the above, but for the WXNRC_* response codes (note that these
+ * are somewhat common across the toolkit).
+ *
+ * @param respCode The WXNRC_* response code to translate.
+ * @return The associated message string for the response code.
+ */
+const char *WXSocket_GetRespCodeStr(int respCode);
 
 /**
  * Standardized method to validate a provided hostname or IP address host

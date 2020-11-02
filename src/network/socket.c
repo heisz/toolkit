@@ -156,7 +156,6 @@ const char *WXSocket_GetErrorStr(int serrno) {
         { WSASYSCALLFAILURE, "System call failure" },
         { WSASYSNOTREADY, "Network subsystem is unavailable" },
         { WSATRY_AGAIN, "Nonauthoritative host not found" },
-        { WSATRY_AGAIN, "Nonauthoritative host not found" },
         { WSATYPE_NOT_FOUND, "Class type not found" },
         { WSAVERNOTSUPPORTED, "Winsock DLL Version out of range" },
      };
@@ -187,6 +186,47 @@ const char *WXSocket_GetErrorStr(int serrno) {
 
      /* Not found (or not windows), fallback to strerror */
      return strerror(serrno);
+}
+
+/* Not pretty but easiest way to be thread safe for the bitmask */
+static char *stateBitStr[] = {
+    "ok", "ok with data",
+    "read required", "read required with data",
+    "write required", "write required with data",
+    "read/write required", "read/write required with data",
+    "wait required", "wait required with data",
+    "read/wait required", "read/wait required with data",
+    "write/wait required", "write/wait required with data",
+    "read/write/wait required", "read/write/wait required with data"
+};
+
+/**
+ * Similar to the above, but for the WXNRC_* response codes (note that these
+ * are somewhat common across the toolkit).
+ *
+ * @param respCode The WXNRC_* response code to translate.
+ * @return The associated message string for the response code.
+ */
+const char *WXSocket_GetRespCodeStr(int respCode) {
+    switch (respCode) {
+        case WXNRC_TIMEOUT:
+            return "timeout";
+        case WXNRC_DISCONNECT:
+            return "disconnect";
+        case WXNRC_DATA_ERROR:
+            return "data error";
+        case WXNRC_MEM_ERROR:
+            return "memory error";
+        case WXNRC_SYS_ERROR:
+            return "system error";
+        default:
+            if ((respCode >= 0) && (respCode <= 15)) {
+                return stateBitStr[respCode];
+            }
+            break;
+    }
+
+    return "unknown";
 }
 
 /* Common method for addrinfo wrapping with error translation */
