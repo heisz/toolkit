@@ -28,7 +28,7 @@ void _setSockErrNo(int errnum);
  * @return Associated last system error number for the specified stream or the
  *         global error number.
  */
-int WXSockStrm_GetLastErrNo(WXSocketStream *strm) {
+int WXSockStream_GetLastErrNo(WXSocketStream *strm) {
     if (strm != NULL) return strm->lastErrNo;
     return WXSocket_GetLastErrNo();
 }
@@ -42,7 +42,7 @@ int WXSockStrm_GetLastErrNo(WXSocketStream *strm) {
  * @param strm The socket stream to get the last response code for.
  * @return The WXNRC_* response code for the last operation on the stream.
  */
-int WXSockStrm_GetLastRespCode(WXSocketStream *strm) {
+int WXSockStream_GetLastRespCode(WXSocketStream *strm) {
     if (strm != NULL) return strm->lastRespCode;
     return WXNRC_SYS_ERROR;
 }
@@ -56,7 +56,7 @@ int WXSockStrm_GetLastRespCode(WXSocketStream *strm) {
  * @param respCode The associated response to record against the stream/global.
  * @return The provided response code value for simplified chaining.
  */
-int WXSockStrm_Response(WXSocketStream *strm, int respCode) {
+int WXSockStream_Response(WXSocketStream *strm, int respCode) {
     int errnum = 0;
 
     switch (respCode) {
@@ -112,8 +112,8 @@ int WXSockStrm_Response(WXSocketStream *strm, int respCode) {
  *                   outbound message streams.  If negative, use default.
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSockStrm_Init(WXSocketStream *strm, WXSocket socketHandle,
-                    int32_t bufferSize) {
+int WXSockStream_Init(WXSocketStream *strm, WXSocket socketHandle,
+                      int32_t bufferSize) {
     int noDelay = 1;
 
     /* Store the socket at the end (successful initialization) */
@@ -128,10 +128,10 @@ int WXSockStrm_Init(WXSocketStream *strm, WXSocket socketHandle,
 
     if (bufferSize < 0) bufferSize = 2048;
     if (WXBuffer_Init(&(strm->readBuffer), bufferSize) == NULL) {
-        return WXSockStrm_Response(strm, WXNRC_MEM_ERROR);
+        return WXSockStream_Response(strm, WXNRC_MEM_ERROR);
     }
     if (WXBuffer_Init(&(strm->writeBuffer), bufferSize) == NULL) {
-        return WXSockStrm_Response(strm, WXNRC_MEM_ERROR);
+        return WXSockStream_Response(strm, WXNRC_MEM_ERROR);
     }
 
     /* For streaming (variant packets), disable the Nagle algorithm */
@@ -146,7 +146,7 @@ int WXSockStrm_Init(WXSocketStream *strm, WXSocket socketHandle,
     } 
     strm->socketHandle = socketHandle;
 
-    return WXSockStrm_Response(strm, WXNRC_OK);
+    return WXSockStream_Response(strm, WXNRC_OK);
 }
 
 /**
@@ -182,7 +182,7 @@ int WXSockStream_Read(WXSocketStream *strm, size_t capacity) {
         len = (rd->allocLength << 1);
         if (capacity > len) len = capacity;
         buffer = (uint8_t *) WXMalloc(len);
-        if (buffer == NULL) return WXSockStrm_Response(strm, WXNRC_MEM_ERROR);
+        if (buffer == NULL) return WXSockStream_Response(strm, WXNRC_MEM_ERROR);
         if (rd->length != 0) (void) memcpy(buffer, rd->buffer, rd->length);
         WXFree(rd->buffer);
         rd->buffer = buffer;
@@ -289,7 +289,7 @@ int WXSockStream_Flush(WXSocketStream *strm) {
  *
  * @param strm The stream to be destroyed.
  */
-void WXSockStrm_Destroy(WXSocketStream *strm) {
+void WXSockStream_Destroy(WXSocketStream *strm) {
     /* Flush the buffers, note that create is done to support error cleanup  */
     WXBuffer_Destroy(&(strm->readBuffer));
     WXBuffer_Destroy(&(strm->writeBuffer));

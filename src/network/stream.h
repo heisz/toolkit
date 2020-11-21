@@ -60,7 +60,7 @@ struct WXSocketStream {
  * @return Associated last system error number for the specified stream or the
  *         global error number.
  */
-int WXSockStrm_GetLastErrNo(WXSocketStream *strm);
+int WXSockStream_GetLastErrNo(WXSocketStream *strm);
 
 /**
  * Matching wrapper to obtain the last status/response code for the stream.
@@ -71,7 +71,7 @@ int WXSockStrm_GetLastErrNo(WXSocketStream *strm);
  * @param strm The socket stream to get the last response code for.
  * @return The WXNRC_* response code for the last operation on the stream.
  */
-int WXSockStrm_GetLastRespCode(WXSocketStream *strm);
+int WXSockStream_GetLastRespCode(WXSocketStream *strm);
 
 /**
  * Method corresponding to the above to set the last system error number and
@@ -82,7 +82,7 @@ int WXSockStrm_GetLastRespCode(WXSocketStream *strm);
  * @param respCode The associated response to record against the stream/global.
  * @return The provided response code value for simplified chaining.
  */
-int WXSockStrm_Response(WXSocketStream *strm, int respCode);
+int WXSockStream_Response(WXSocketStream *strm, int respCode);
 
 /**
  * Initialize a socket stream instance.  Note that this does not allocate the
@@ -96,8 +96,8 @@ int WXSockStrm_Response(WXSocketStream *strm, int respCode);
  *                   outbound message streams.  If negative, use default.
  * @return WXNRC_OK if successful, suitable WXNRC_* error code on failure.
  */
-int WXSockStrm_Init(WXSocketStream *strm, WXSocket socketHandle,
-                    int32_t bufferSize);
+int WXSockStream_Init(WXSocketStream *strm, WXSocket socketHandle,
+                      int32_t bufferSize);
 
 /**
  * Read more content into the read buffer, consuming any offset and expanding
@@ -147,7 +147,7 @@ int WXSockStream_Flush(WXSocketStream *strm);
  *
  * @param strm The stream to be destroyed.
  */
-void WXSockStrm_Destroy(WXSocketStream *strm);
+void WXSockStream_Destroy(WXSocketStream *strm);
 
 /* TODO - merge WXPacketStream code here */
 

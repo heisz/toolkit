@@ -158,7 +158,7 @@ int main(int argc, char **argv) {
             }
 
             /* Create the streaming instance */
-            if (WXSockStrm_Init(&strm, hndl, -1) != WXNRC_OK) {
+            if (WXSockStream_Init(&strm, hndl, -1) != WXNRC_OK) {
                 (void) fprintf(stderr, "Failed to initialize stream\n");
                 exit(1);
             }
@@ -174,7 +174,7 @@ int main(int argc, char **argv) {
                   "\n";
             if (WXBuffer_Append(&(strm.writeBuffer), req,
                                 strlen(req) - 1, TRUE) == NULL) {
-                (void) fprintf(stderr, "Failed to stage the outgoing request\n");
+                (void) fprintf(stderr, "Failed to stage outgoing request\n");
                 exit(1);
             }
 
@@ -206,12 +206,12 @@ int main(int argc, char **argv) {
             ptr = strchr(strm.readBuffer.buffer, '\n');
             if (ptr != NULL) {
                 (void) fprintf(stdout, "-> %.*s\n",
-                               (int) (ptr - (char *) strm.readBuffer.buffer) + 1,
+                               (int) (ptr - (char *) strm.readBuffer.buffer) +1,
                                strm.readBuffer.buffer);
             }
 
             /* Cleanup */
-            WXSockStrm_Destroy(&strm);
+            WXSockStream_Destroy(&strm);
         }
     }
 
