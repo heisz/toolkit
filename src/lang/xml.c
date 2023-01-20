@@ -705,7 +705,7 @@ WXMLElement *WXML_Decode(const char *content, int retainTextFragments,
             current->namespace = _assignNS(current, current->name, dfltNs);
             attr = current->attributes;
             while (attr != NULL) {
-                attr->namespace = _assignNS(current, attr->name, dfltNs);
+                attr->namespace = _assignNS(current, attr->name, NULL);
                 attr = attr->next;
             }
 

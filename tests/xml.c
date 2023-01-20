@@ -227,8 +227,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
     attr = child->attributes;
-    if ((attr == NULL) || (attr->namespace == NULL) ||
-            (strcmp(attr->namespace->href, "dflt") != 0) ||
+    if ((attr == NULL) || (attr->namespace != NULL) ||
             (strcmp(attr->name, "attr") != 0)) {
         (void) fprintf(stderr, "Invalid name(space) for empty attr\n");
         exit(1);
@@ -246,8 +245,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
     attr = child->attributes;
-    if ((attr == NULL) || (attr->namespace == NULL) ||
-            (strcmp(attr->namespace->href, "dflt") != 0) ||
+    if ((attr == NULL) || (attr->namespace != NULL) ||
             (strcmp(attr->name, "sqattr") != 0)) {
         (void) fprintf(stderr, "Invalid name(space) for notempty sq attr\n");
         exit(1);
@@ -685,6 +683,66 @@ int main(int argc, char **argv) {
                   "</left>\n"
                 "</nest>") != 0) {
         (void) fprintf(stderr, "Incorrect canonical result for deep render\n");
+        exit(1);
+    }
+    WXML_Destroy(doc);
+
+    /* Another challenge from the SAML canonicalization failures */
+    doc = WXML_Decode("<samlp:Response xmlns:samlp=\"urn:SAML:2.0:protocol\" "
+                             "ID=\"dkjfhdgfuwefwfuwefsdfsfosfsf\" "
+                             "InResponseTo=\"xyzzy\">"
+                        "<Issuer xmlns=\"urn:oasis:SAML:2.0:assertion\">"
+                                       "https://sts.windows.net/706/</Issuer>"
+                        "<Assertion xmlns=\"urn:oasis:SAML:2.0:assertion\" "
+                                    "ID=\"dfgdljfgddfjdsfhslfdjhdsflsjdf\">"
+                          "<Issuer>https://sts.windows.net/706/</Issuer>"
+                          "<ds:Signature xmlns:ds=\"xmldsig#\">"
+                            "<ds:SignedInfo>"
+                              "<ds:CanonicalizationMethod "
+                                         "Algorithm=\"xml-exc-c14n#\"/>"
+                              "<ds:SignatureMethod "
+                                         "Algorithm=\"#rsa-sha256\"/>"
+                              "<ds:Reference URI=\"#_aaa\">"
+                                "<ds:Transforms>"
+                                  "<ds:Transform "
+                                         "Algorithm=\"xmldsig#enveloped\"/>"
+                                  "<ds:Transform "
+                                         "Algorithm=\"xml-exc-c14n#\"/>"
+                                "</ds:Transforms>"
+                                "<ds:DigestMethod "
+                                         "Algorithm=\"xmlenc#sha256\"/>"
+                                "<ds:DigestValue>abcdefg</ds:DigestValue>"
+                              "</ds:Reference>"
+                            "</ds:SignedInfo>"
+                          "</ds:Signature>"
+                        "</Assertion>"
+                      "</samlp:Response>",
+                      TRUE, errorMsg, sizeof(errorMsg));
+    if (doc == NULL) {
+        (void) fprintf(stderr, "Failed to parse SAML: %s\n", errorMsg);
+        exit(1);
+    }
+    WXBuffer_Empty(&buffer);
+    WXML_Canonicalize(&buffer, WXML_Find(doc, "SignedInfo", TRUE), NULL, FALSE);
+    if (strcmp(buffer.buffer,
+               "<ds:SignedInfo xmlns:ds=\"xmldsig#\">"
+                 "<ds:CanonicalizationMethod Algorithm=\"xml-exc-c14n#\">"
+                     "</ds:CanonicalizationMethod>"
+                 "<ds:SignatureMethod Algorithm=\"#rsa-sha256\">"
+                     "</ds:SignatureMethod>"
+                 "<ds:Reference URI=\"#_aaa\">"
+                   "<ds:Transforms>"
+                     "<ds:Transform Algorithm=\"xmldsig#enveloped\">"
+                         "</ds:Transform>"
+                     "<ds:Transform Algorithm=\"xml-exc-c14n#\">"
+                         "</ds:Transform>"
+                   "</ds:Transforms>"
+                   "<ds:DigestMethod Algorithm=\"xmlenc#sha256\">"
+                       "</ds:DigestMethod>"
+                   "<ds:DigestValue>abcdefg</ds:DigestValue>"
+                 "</ds:Reference>"
+               "</ds:SignedInfo>") != 0) {
+        (void) fprintf(stderr, "Incorrect canonical result for ADFS SAML\n");
         exit(1);
     }
 
