@@ -113,6 +113,7 @@ AC_CONFIG_FILES([Makefile
                  src/db/pgsql/Makefile
                  src/lang/Makefile
                  src/network/Makefile
+                 src/protocol/Makefile
                  src/utility/Makefile
                  tests/Makefile])
 AC_OUTPUT
