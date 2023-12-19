@@ -288,7 +288,7 @@ static void dumpRespHeader(WXFCGI_Header *header) {
  * @param isStdout TRUE if this is a standard output response message, FALSE
  *                 for a standard error response.
  * @param response The buffer of the response to be written.
- * @param length The number of bytes contained in the response.
+ * @param length The number of bytes contained in the response, -1 for strlen.
  * @return Suitable WXNRC return codes, for memory or write operations.
  */
 int WXFCGI_WriteResponse(WXFCGI_Connection *conn, uint16_t requestId,
@@ -305,6 +305,7 @@ int WXFCGI_WriteResponse(WXFCGI_Connection *conn, uint16_t requestId,
     header.requestIdB0 = requestId & 0xFF;
 
     /* Might be distributed over multiple fragments */
+    if (length < 0) length = strlen((char *) response);
     while (length > 0) {
         wlen = length;
         if (wlen > 65528) wlen = 65528;
