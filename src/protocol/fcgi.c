@@ -418,6 +418,7 @@ int WXFCGI_Write(WXFCGI_Connection *conn) {
 void WXFCGI_Release(WXFCGI_Connection *conn) {
     if (conn->request.params != NULL) flushNVP(conn->request.params);
     if (conn->request.stdin != NULL) WXFree(conn->request.stdin);
+    if (conn->outBuffer != NULL) WXFree(conn->outBuffer);
     WXSocket_Close(conn->sockConn);
     WXFree(conn);
 }
