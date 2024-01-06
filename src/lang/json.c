@@ -1,7 +1,7 @@
 /*
  * Structures and methods for parsing, representing and generating JSON data.
  *
- * Copyright (C) 2015-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2015-2024 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -278,7 +278,6 @@ WXJSONToken *WXJSONLexerNext(WXJSONLexer *lexer) {
                             default:
                                 WXBuffer_Destroy(&strBuffer);
                                 RETURN_ERROR(WXJSONERR_INVALID_ESCAPE);
-                                break;
                         }
                         if (ch != '\0') {
                             if (WXBuffer_Append(&strBuffer, (uint8_t *) &ch,
@@ -425,6 +424,7 @@ static WXJSONErrorCode WXJSON_ParseValue(WXJSONLexer *lexer,
     /* Grab next token and check for validation from lexer */
     token = WXJSONLexerNext(lexer);
     if (token->type == WXJSONTK_ERROR) {
+        value->type = WXJSONVALUE_ERROR;
         return token->value.errorCode;
     }
 

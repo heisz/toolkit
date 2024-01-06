@@ -1,7 +1,7 @@
 /*
  * Implementation of the core elements of the database facade/abstraction.
  *
- * Copyright (C) 1997-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2024 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -53,7 +53,6 @@ const char *WXDB_GetLastErrorMessage(void *obj) {
             return ((WXDBStatement *) obj)->lastErrorMsg;
         case WXDB_MAGIC_RSLT:
             return ((WXDBResultSet *) obj)->lastErrorMsg;
-            break;
     }
 
     return "Invalid/unrecognized database object type/instance";

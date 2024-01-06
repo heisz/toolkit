@@ -1,7 +1,7 @@
 /*
  * Standard definitions and toolkits/wrappers for memory processing.
  *
- * Copyright (C) 1999-2019 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2024 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -53,7 +53,7 @@ void *_WXRealloc(void *original, size_t size, int line, char *file);
  *
  * @param original The originally allocated block of memory to be freed.
  */
-#define WXFree(original) _WXFree(original, __LINE__, __FILE__);
+#define WXFree(original) _WXFree(original, __LINE__, __FILE__)
 void _WXFree(void *original, int line, char *file);
 
 #endif

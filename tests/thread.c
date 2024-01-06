@@ -1,7 +1,7 @@
 /*
  * Test methods for the platform-independent thread wrapping functions.
  *
- * Copyright (C) 2003-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2003-2024 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -145,6 +145,8 @@ static void *worker(void *arg) {
     WXThread_USleep(tm * 1000000);
     WXLog_Info("Worker (%d) finished", tm);
     lastTmExit = tm;
+
+    return NULL;
 }
 
 /* Just so I can embed in the if() */

@@ -1,7 +1,7 @@
 /*
  * General methods for network socket creation and processing.
  *
- * Copyright (C) 1997-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2024 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -709,8 +709,8 @@ int WXSocket_OpenTCPServer(const char *hostIpAddr, const char *service,
 int WXSocket_OpenEphemeralServer(const char *hostIpAddr, uint32_t *portRef,
                                  WXSocket *socketRef) {
     struct addrinfo hints, *addrInfo = NULL;
+    uint32_t ephemPort = 0;
     WXSocket socketHandle;
-    uint32_t ephemPort;
     int rc;
 
     /* Retrieve target address information */

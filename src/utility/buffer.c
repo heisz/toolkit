@@ -1,7 +1,7 @@
 /*
  * Dynamic/rolling memory buffer, which supports stream-like data processing.
  *
- * Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2024 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -417,7 +417,7 @@ static uint8_t *_pack(WXBuffer *buffer, const char *format, size_t flen,
                     token = 'z';
                     break;
             }
-        } else if (actvEnd == FMT_BIG_ENDIAN) {
+        } else if (actvEnd == FMT_LITTLE_ENDIAN) {
             switch (token) {
                 case 's':
                 case 'S':

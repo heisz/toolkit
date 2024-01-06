@@ -1,7 +1,7 @@
 /*
  * Tooling for managing a 'generic' worker/thread pool system.
  *
- * Copyright (C) 2003-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2003-2024 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  *
@@ -90,6 +90,8 @@ static void *worker(void *arg) {
         WXThread_CondBroadcast(&(pool->waitCond));
     }
     (void) WXThread_MutexUnlock(&(pool->mutex));
+
+    return NULL;
 }
 
 /**
