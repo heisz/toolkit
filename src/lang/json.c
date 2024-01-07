@@ -63,7 +63,7 @@ void WXJSONLexerInit(WXJSONLexer *lexer, const char *content) {
 #define RETURN_ERROR(x) \
     lexer->lastToken.type = WXJSONTK_ERROR; \
     lexer->lastToken.value.errorCode = x; \
-    return &(lexer->lastToken);
+    return &(lexer->lastToken)
 
 #define IN_VALUE_CONTEXT() \
     ((lexer->lastToken.type == WXJSONTK_START) || \

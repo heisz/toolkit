@@ -1,7 +1,7 @@
 /*
  * Methods for managing FCGI protocol transport.
  *
- * Copyright (C) 2007-2023 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2007-2024 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -77,7 +77,7 @@ int WXFCGI_Read(WXFCGI_Connection *conn) {
                            sizeof(WXFCGI_Header) + conn->recordLength, 0);
         if (rc < 0) return rc;
         conn->recordLength -= rc;
-        if (conn->recordLength > - sizeof(WXFCGI_Header))
+        if (conn->recordLength > - (int32_t) sizeof(WXFCGI_Header))
                                               return WXNRC_READ_REQUIRED;
         conn->recordLength = (((uint32_t) conn->header.contentLengthB1) << 8) |
                                                  conn->header.contentLengthB0;

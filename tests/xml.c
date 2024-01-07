@@ -1,7 +1,7 @@
 /*
  * Test interface for the XML data processor.
  *
- * Copyright (C) 2007-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2007-2024 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -98,51 +98,51 @@ int main(int argc, char **argv) {
 
     /* Big run of lexing test cases */
     WXMLLexerInit(&lex, bigXML);
-    TEST_TOKEN(WXMLTK_PI_START, "Processing instruction start");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "PI attribute", "xml");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "PI version", "version");
-    TEST_TOKEN(WXMLTK_ATTR_EQ, "PI version assign");
-    TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "PI version value", "1.0");
-    TEST_TOKEN(WXMLTK_PI_END, "Processing instruction end");
+    TEST_TOKEN(WXMLTK_PI_START, "Processing instruction start")
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "PI attribute", "xml")
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "PI version", "version")
+    TEST_TOKEN(WXMLTK_ATTR_EQ, "PI version assign")
+    TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "PI version value", "1.0")
+    TEST_TOKEN(WXMLTK_PI_END, "Processing instruction end")
 
     /* Force the reset handled in the grammar (PI exit without element) */
     lex.ignoreWhitespace = TRUE;
 
-    TEST_TOKEN(WXMLTK_ELMNT_TAG_START, "Root tag start");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root tag name", "ns:root");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root namespace id", "xmlns:ns");
-    TEST_TOKEN(WXMLTK_ATTR_EQ, "Root namespace eq");
-    TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "Root namespace val", "test:xml");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root namespace dflt id", "xmlns");
-    TEST_TOKEN(WXMLTK_ATTR_EQ, "Root namespace dflt eq");
-    TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "Root namespace dflt val", "dflt");
-    TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Root tag end");
-    TEST_STR_TOKEN(WXMLTK_CONTENT, "Root first content", "mixed text\n    ");
+    TEST_TOKEN(WXMLTK_ELMNT_TAG_START, "Root tag start")
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root tag name", "ns:root")
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root namespace id", "xmlns:ns")
+    TEST_TOKEN(WXMLTK_ATTR_EQ, "Root namespace eq")
+    TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "Root namespace val", "test:xml")
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root namespace dflt id", "xmlns")
+    TEST_TOKEN(WXMLTK_ATTR_EQ, "Root namespace dflt eq")
+    TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "Root namespace dflt val", "dflt")
+    TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Root tag end")
+    TEST_STR_TOKEN(WXMLTK_CONTENT, "Root first content", "mixed text\n    ")
 
-    TEST_TOKEN(WXMLTK_ELMNT_TAG_START, "Empty tag start");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Empty tag name", "empty");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Empty attr", "attr");
-    TEST_TOKEN(WXMLTK_EMPTY_ELMNT_TAG_END, "Empty tag end");
-    TEST_STR_TOKEN(WXMLTK_CONTENT, "Root second content", "\n    ");
+    TEST_TOKEN(WXMLTK_ELMNT_TAG_START, "Empty tag start")
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Empty tag name", "empty")
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Empty attr", "attr")
+    TEST_TOKEN(WXMLTK_EMPTY_ELMNT_TAG_END, "Empty tag end")
+    TEST_STR_TOKEN(WXMLTK_CONTENT, "Root second content", "\n    ")
 
-    TEST_TOKEN(WXMLTK_ELMNT_TAG_START, "Full tag start");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Full tag name", "notsoempty");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Single quote attr nm", "sqattr");
-    TEST_TOKEN(WXMLTK_ATTR_EQ, "Single quote attr eq");
-    TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "Single quote attr val", "<&yo>");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Double quote attr nm", "ns:dqattr");
-    TEST_TOKEN(WXMLTK_ATTR_EQ, "Double quote attr eq");
-    TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "Double quote attr val", "");
-    TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Full tag start close");
-    TEST_STR_TOKEN(WXMLTK_CONTENT, "Full tag content", "'$content%\"<");
-    TEST_TOKEN(WXMLTK_CLOSE_ELMNT_TAG_START, "Full tag end");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Full tag name", "notsoempty");
-    TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Full tag end close");
-    TEST_STR_TOKEN(WXMLTK_CONTENT, "Root third content", "\n");
+    TEST_TOKEN(WXMLTK_ELMNT_TAG_START, "Full tag start")
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Full tag name", "notsoempty")
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Single quote attr nm", "sqattr")
+    TEST_TOKEN(WXMLTK_ATTR_EQ, "Single quote attr eq")
+    TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "Single quote attr val", "<&yo>")
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Double quote attr nm", "ns:dqattr")
+    TEST_TOKEN(WXMLTK_ATTR_EQ, "Double quote attr eq")
+    TEST_STR_TOKEN(WXMLTK_ATTR_VALUE, "Double quote attr val", "")
+    TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Full tag start close")
+    TEST_STR_TOKEN(WXMLTK_CONTENT, "Full tag content", "'$content%\"<")
+    TEST_TOKEN(WXMLTK_CLOSE_ELMNT_TAG_START, "Full tag end")
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Full tag name", "notsoempty")
+    TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Full tag end close")
+    TEST_STR_TOKEN(WXMLTK_CONTENT, "Root third content", "\n")
 
-    TEST_TOKEN(WXMLTK_CLOSE_ELMNT_TAG_START, "Root tag end");
-    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root tag name", "ns:root");
-    TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Root tag end close");
+    TEST_TOKEN(WXMLTK_CLOSE_ELMNT_TAG_START, "Root tag end")
+    TEST_STR_TOKEN(WXMLTK_IDENTIFIER, "Root tag name", "ns:root")
+    TEST_TOKEN(WXMLTK_ELMNT_TAG_END, "Root tag end close")
 
     /* Force the reset handled in the grammar (closure of element) */
     lex.ignoreWhitespace = TRUE;

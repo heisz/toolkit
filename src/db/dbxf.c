@@ -53,9 +53,9 @@ const char *WXDB_GetLastErrorMessage(void *obj) {
             return ((WXDBStatement *) obj)->lastErrorMsg;
         case WXDB_MAGIC_RSLT:
             return ((WXDBResultSet *) obj)->lastErrorMsg;
+        default:
+            return "Invalid/unrecognized database object type/instance";
     }
-
-    return "Invalid/unrecognized database object type/instance";
 }
 
 /* Common methods for connection pool cleanup */
@@ -351,7 +351,7 @@ void WXDBConnectionPool_Return(WXDBConnection *conn) {
  * @return One of the WXDRC_* result codes, depending on outcome.
  */
 void WXDBConnectionPool_Destroy(WXDBConnectionPool *pool) {
-    WXDBConnection *conn, *next;;
+    WXDBConnection *conn, *next;
 
     /* Rip out connections array from pool */
     (void) WXThread_MutexLock(&(pool->connLock));

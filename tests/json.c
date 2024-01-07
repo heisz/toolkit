@@ -1,7 +1,7 @@
 /*
  * Test interface for the JSON data processor.
  *
- * Copyright (C) 2015-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2015-2024 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -115,126 +115,126 @@ int main(int argc, char **argv) {
     /* Lexer test cases first, lots of manual lexing tokenization checks */
     WXJSONLexerInit(&lex, bigJSON);
 
-    TEST_TOKEN(WXJSONTK_OBJ_START, "Global object start");
+    TEST_TOKEN(WXJSONTK_OBJ_START, "Global object start")
 
-    TEST_STR_TOKEN("empty_obj");
-    TEST_TOKEN(WXJSONTK_COLON, "Empty obj colon");
-    TEST_TOKEN(WXJSONTK_OBJ_START, "Empty obj start");
-    TEST_TOKEN(WXJSONTK_VALUE_OBJ_END, "Empty obj closure");
-    TEST_TOKEN(WXJSONTK_COMMA, "Empty obj comma");
+    TEST_STR_TOKEN("empty_obj")
+    TEST_TOKEN(WXJSONTK_COLON, "Empty obj colon")
+    TEST_TOKEN(WXJSONTK_OBJ_START, "Empty obj start")
+    TEST_TOKEN(WXJSONTK_VALUE_OBJ_END, "Empty obj closure")
+    TEST_TOKEN(WXJSONTK_COMMA, "Empty obj comma")
 
-    TEST_STR_TOKEN("empty_arr");
-    TEST_TOKEN(WXJSONTK_COLON, "Empty array colon");
-    TEST_TOKEN(WXJSONTK_ARR_START, "Empty array start");
-    TEST_TOKEN(WXJSONTK_VALUE_ARR_END, "Empty array end");
-    TEST_TOKEN(WXJSONTK_COMMA, "Empty array comma");
+    TEST_STR_TOKEN("empty_arr")
+    TEST_TOKEN(WXJSONTK_COLON, "Empty array colon")
+    TEST_TOKEN(WXJSONTK_ARR_START, "Empty array start")
+    TEST_TOKEN(WXJSONTK_VALUE_ARR_END, "Empty array end")
+    TEST_TOKEN(WXJSONTK_COMMA, "Empty array comma")
 
-    TEST_STR_TOKEN("occ_obj");
-    TEST_TOKEN(WXJSONTK_COLON, "Occ object colon");
-    TEST_TOKEN(WXJSONTK_OBJ_START, "Occ object start");
+    TEST_STR_TOKEN("occ_obj")
+    TEST_TOKEN(WXJSONTK_COLON, "Occ object colon")
+    TEST_TOKEN(WXJSONTK_OBJ_START, "Occ object start")
 
-    TEST_STR_TOKEN("true_key");
-    TEST_TOKEN(WXJSONTK_COLON, "True value colon");
-    TEST_TOKEN(WXJSONTK_VALUE_TRUE, "True value");
-    TEST_TOKEN(WXJSONTK_COMMA, "True value comma");
+    TEST_STR_TOKEN("true_key")
+    TEST_TOKEN(WXJSONTK_COLON, "True value colon")
+    TEST_TOKEN(WXJSONTK_VALUE_TRUE, "True value")
+    TEST_TOKEN(WXJSONTK_COMMA, "True value comma")
 
-    TEST_STR_TOKEN("false_key");
-    TEST_TOKEN(WXJSONTK_COLON, "False value colon");
-    TEST_TOKEN(WXJSONTK_VALUE_FALSE, "False value");
-    TEST_TOKEN(WXJSONTK_COMMA, "False value comma");
+    TEST_STR_TOKEN("false_key")
+    TEST_TOKEN(WXJSONTK_COLON, "False value colon")
+    TEST_TOKEN(WXJSONTK_VALUE_FALSE, "False value")
+    TEST_TOKEN(WXJSONTK_COMMA, "False value comma")
 
-    TEST_STR_TOKEN("null_key");
-    TEST_TOKEN(WXJSONTK_COLON, "Null value colon");
-    TEST_TOKEN(WXJSONTK_VALUE_NULL, "Null value");
-    TEST_TOKEN(WXJSONTK_COMMA, "Null value comma");
+    TEST_STR_TOKEN("null_key")
+    TEST_TOKEN(WXJSONTK_COLON, "Null value colon")
+    TEST_TOKEN(WXJSONTK_VALUE_NULL, "Null value")
+    TEST_TOKEN(WXJSONTK_COMMA, "Null value comma")
 
-    TEST_STR_TOKEN("int_key");
-    TEST_TOKEN(WXJSONTK_COLON, "Int value colon");
-    TEST_TOKEN(WXJSONTK_VALUE_INT, "Int value");
+    TEST_STR_TOKEN("int_key")
+    TEST_TOKEN(WXJSONTK_COLON, "Int value colon")
+    TEST_TOKEN(WXJSONTK_VALUE_INT, "Int value")
     if (lex.lastToken.value.ival != 12345) {
         (void) fprintf(stderr, "Incorrect parsed integer value\n");
         exit(1);
     }
-    TEST_TOKEN(WXJSONTK_COMMA, "Int value comma");
+    TEST_TOKEN(WXJSONTK_COMMA, "Int value comma")
 
-    TEST_STR_TOKEN("nint_key");
-    TEST_TOKEN(WXJSONTK_COLON, "Negative int value colon");
-    TEST_TOKEN(WXJSONTK_VALUE_INT, "Negative int value");
+    TEST_STR_TOKEN("nint_key")
+    TEST_TOKEN(WXJSONTK_COLON, "Negative int value colon")
+    TEST_TOKEN(WXJSONTK_VALUE_INT, "Negative int value")
     if (lex.lastToken.value.ival != -1234) {
         (void) fprintf(stderr, "Incorrect parsed negative integer value\n");
         exit(1);
     }
-    TEST_TOKEN(WXJSONTK_COMMA, "Negative int value comma");
+    TEST_TOKEN(WXJSONTK_COMMA, "Negative int value comma")
 
-    TEST_STR_TOKEN("flt_key");
-    TEST_TOKEN(WXJSONTK_COLON, "Float value colon");
-    TEST_TOKEN(WXJSONTK_VALUE_DBL, "Float value");
+    TEST_STR_TOKEN("flt_key")
+    TEST_TOKEN(WXJSONTK_COLON, "Float value colon")
+    TEST_TOKEN(WXJSONTK_VALUE_DBL, "Float value")
     if (lex.lastToken.value.dval != 12345.45) {
         (void) fprintf(stderr, "Incorrect parsed float value\n");
         exit(1);
     }
-    TEST_TOKEN(WXJSONTK_COMMA, "Float value comma");
+    TEST_TOKEN(WXJSONTK_COMMA, "Float value comma")
 
-    TEST_STR_TOKEN("eflt_key");
-    TEST_TOKEN(WXJSONTK_COLON, "Exp loat value colon");
-    TEST_TOKEN(WXJSONTK_VALUE_DBL, "Exp float value");
+    TEST_STR_TOKEN("eflt_key")
+    TEST_TOKEN(WXJSONTK_COLON, "Exp loat value colon")
+    TEST_TOKEN(WXJSONTK_VALUE_DBL, "Exp float value")
     if (lex.lastToken.value.dval != -12345e3) {
         (void) fprintf(stderr, "Incorrect parsed exp float value\n");
         exit(1);
     }
-    TEST_TOKEN(WXJSONTK_COMMA, "Exp float value comma");
+    TEST_TOKEN(WXJSONTK_COMMA, "Exp float value comma")
 
-    TEST_STR_TOKEN("str_key");
-    TEST_TOKEN(WXJSONTK_COLON, "Str value colon");
-    TEST_STR_TOKEN("abcdefg");
-    TEST_TOKEN(WXJSONTK_COMMA, "Str value comma");
+    TEST_STR_TOKEN("str_key")
+    TEST_TOKEN(WXJSONTK_COLON, "Str value colon")
+    TEST_STR_TOKEN("abcdefg")
+    TEST_TOKEN(WXJSONTK_COMMA, "Str value comma")
 
-    TEST_STR_TOKEN("allstr_key");
-    TEST_TOKEN(WXJSONTK_COLON, "All str value colon");
-    TEST_STR_TOKEN("\"/\b\f\n\r\t");
-    TEST_TOKEN(WXJSONTK_COMMA, "All str value comma");
+    TEST_STR_TOKEN("allstr_key")
+    TEST_TOKEN(WXJSONTK_COLON, "All str value colon")
+    TEST_STR_TOKEN("\"/\b\f\n\r\t")
+    TEST_TOKEN(WXJSONTK_COMMA, "All str value comma")
 
-    TEST_STR_TOKEN("uni_key");
-    TEST_TOKEN(WXJSONTK_COLON, "Uni str value colon");
-    TEST_STR_TOKEN("# \xD1\xB2 \xE4\xB8\x9D");
+    TEST_STR_TOKEN("uni_key")
+    TEST_TOKEN(WXJSONTK_COLON, "Uni str value colon")
+    TEST_STR_TOKEN("# \xD1\xB2 \xE4\xB8\x9D")
 
-    TEST_TOKEN(WXJSONTK_VALUE_OBJ_END, "Occ objectect end");
-    TEST_TOKEN(WXJSONTK_COMMA, "Occ object comma");
+    TEST_TOKEN(WXJSONTK_VALUE_OBJ_END, "Occ objectect end")
+    TEST_TOKEN(WXJSONTK_COMMA, "Occ object comma")
 
-    TEST_STR_TOKEN("occ_arr");
-    TEST_TOKEN(WXJSONTK_COLON, "Occ array colon");
-    TEST_TOKEN(WXJSONTK_ARR_START, "Occ array start");
+    TEST_STR_TOKEN("occ_arr")
+    TEST_TOKEN(WXJSONTK_COLON, "Occ array colon")
+    TEST_TOKEN(WXJSONTK_ARR_START, "Occ array start")
 
-    TEST_TOKEN(WXJSONTK_VALUE_TRUE, "Array true value");
-    TEST_TOKEN(WXJSONTK_COMMA, "Array true value comma");
+    TEST_TOKEN(WXJSONTK_VALUE_TRUE, "Array true value")
+    TEST_TOKEN(WXJSONTK_COMMA, "Array true value comma")
 
-    TEST_TOKEN(WXJSONTK_VALUE_FALSE, "Array false value");
-    TEST_TOKEN(WXJSONTK_COMMA, "Array false value comma");
+    TEST_TOKEN(WXJSONTK_VALUE_FALSE, "Array false value")
+    TEST_TOKEN(WXJSONTK_COMMA, "Array false value comma")
 
-    TEST_TOKEN(WXJSONTK_VALUE_NULL, "Array null value");
-    TEST_TOKEN(WXJSONTK_COMMA, "Array null value comma");
+    TEST_TOKEN(WXJSONTK_VALUE_NULL, "Array null value")
+    TEST_TOKEN(WXJSONTK_COMMA, "Array null value comma")
 
-    TEST_TOKEN(WXJSONTK_VALUE_INT, "Array int value");
+    TEST_TOKEN(WXJSONTK_VALUE_INT, "Array int value")
     if (lex.lastToken.value.ival != 12345) {
         (void) fprintf(stderr, "Incorrect parsed array integer value\n");
         exit(1);
     }
-    TEST_TOKEN(WXJSONTK_COMMA, "Array int value comma");
+    TEST_TOKEN(WXJSONTK_COMMA, "Array int value comma")
 
-    TEST_TOKEN(WXJSONTK_VALUE_DBL, "Array flt value");
+    TEST_TOKEN(WXJSONTK_VALUE_DBL, "Array flt value")
     if (lex.lastToken.value.dval != 1.23) {
         (void) fprintf(stderr, "Incorrect parsed array flt value\n");
         exit(1);
     }
-    TEST_TOKEN(WXJSONTK_COMMA, "Array flt value comma");
+    TEST_TOKEN(WXJSONTK_COMMA, "Array flt value comma")
 
-    TEST_STR_TOKEN("abc");
+    TEST_STR_TOKEN("abc")
 
-    TEST_TOKEN(WXJSONTK_VALUE_ARR_END, "Occ array closure");
+    TEST_TOKEN(WXJSONTK_VALUE_ARR_END, "Occ array closure")
 
-    TEST_TOKEN(WXJSONTK_VALUE_OBJ_END, "Final object closure");
-    TEST_TOKEN(WXJSONTK_EOF, "End of file");
-    TEST_TOKEN(WXJSONTK_EOF, "End of file (two)");
+    TEST_TOKEN(WXJSONTK_VALUE_OBJ_END, "Final object closure")
+    TEST_TOKEN(WXJSONTK_EOF, "End of file")
+    TEST_TOKEN(WXJSONTK_EOF, "End of file (two)")
 
     WXJSONLexerDestroy(&lex);
 
