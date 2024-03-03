@@ -1,7 +1,7 @@
 /*
  * Collection of elements related to building a daemon service instance.
  *
- * Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2024 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -47,7 +47,8 @@ void daemonStart(const char *rootDir, const char *appName,
                        strerror(errno));
         exit(1);
     } else if (childpid > 0) {
-        /* Parent process returns */
+        /* Parent process returns, delay for systemd */
+        usleep(200000);
         exit(0);
     }
 
