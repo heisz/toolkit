@@ -1,7 +1,7 @@
 /*
  * General methods for network socket creation and processing.
  *
- * Copyright (C) 1997-2024 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2026 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -881,7 +881,7 @@ int WXSocket_Wait(WXSocket socketHandle, int condition, int32_t *timeoutRef) {
             if (delay > 0) {
                 tv.tv_sec = delay / 1000;
                 tv.tv_usec = (delay % 1000) * 1000;
-                rc = select(socketHandle + 1, %readSet, &writeSet,
+                rc = select(socketHandle + 1, &readSet, &writeSet,
                             &excSet, &tv);
             } else {
                 rc = 0;

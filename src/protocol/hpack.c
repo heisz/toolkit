@@ -1,7 +1,7 @@
 /*
  * Supporting routines and data for HTTP/2 HPACK processing.
  *
- * Copyright (C) 2018-2021 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2018-2026 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -298,7 +298,7 @@ static struct wxhttpHuffEncEntry {
 size_t WXHTTP_HEncodeStr(uint8_t *src, size_t len, uint8_t *dst, int isLower) {
     struct wxhttpHuffEncEntry *entry;
     size_t enclen = 0, srclen = len;
-    uint64_t accumulator;
+    uint64_t accumulator = 0;
     int bits = 0, eos;
     uint8_t ch;
 #define BITBLK 64
@@ -2105,6 +2105,7 @@ size_t WXHTTP_HEncodeInt(uint32_t val, uint8_t prefix, uint8_t mask,
  */
 ssize_t WXHTTP_HDecodeInt(uint8_t *src, size_t len, uint8_t mask,
                           uint32_t *val) {
+    uint64_t accumulator = 0;
     uint32_t ch;
     int idx;
 
@@ -2116,8 +2117,12 @@ ssize_t WXHTTP_HDecodeInt(uint8_t *src, size_t len, uint8_t mask,
     /* Scan for the remainder */
     for (idx = 0; (idx < len) && (idx < 6); idx++) {
         ch = *(src++);
-        *val += (ch & 0x7f) << (7 * idx);
-        if ((ch & 0x80) == 0) return idx + 2;
+        accumulator += ((uint64_t) (ch & 0x7f)) << (7 * idx);
+        if ((ch & 0x80) == 0) {
+            if (accumulator > UINT32_MAX) return WXNRC_DATA_ERROR;
+            *rval = (uint32_t) accumulator;
+            return idx + 2;
+        }
     }
 
     return (idx < 6) ? WXNRC_TRUNCATED : WXNRC_DATA_ERROR;
@@ -2305,7 +2310,7 @@ static void _resizeDynamicHeaders(WXHTTPDynamicHeaders *dynTable,
     dynTable->maxTableSize = newSize;
 }
 
-/* Handle Huffman string literal encoding, destination should be 6 + len bytes */
+/* Handle Huffman string literal encode, destination should be 6 + len bytes */
 size_t _encodeStringLiteral(uint8_t *dst, uint8_t *val, uint32_t len,
                            int isLower) {
     uint8_t enc[16], *ptr = dst;
