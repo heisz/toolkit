@@ -1,7 +1,7 @@
 #
 # Autoconf macro definitions for the generics toolkits.
 #
-# Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
+# Copyright (C) 1999-2026 J.M. Heisz.  All Rights Reserved.
 # See the LICENSE file accompanying the distribution your rights to use
 # this software.
 #
@@ -21,6 +21,7 @@ AC_CANONICAL_HOST
 
 # Uses libtool notation for sub-library compilation
 AM_PROG_AR
+AM_PROG_AS
 LT_INIT
 
 # Choose a working default prefix
@@ -56,6 +57,21 @@ AC_ARG_WITH(label,
     AC_DEFINE_UNQUOTED([BUILDLABEL], [""],
                        [Empty placeholder for label associated with the build])
 ])
+
+# Handle architecture specific compilation for assembly elements
+case "$host_cpu" in
+     x86_64* | amd64*)
+        AM_CONDITIONAL([ARCH_XA64], [true])
+        AM_CONDITIONAL([ARCH_ARM64], [false])
+        ;;
+    aarch64* | arm64*)
+        AM_CONDITIONAL([ARCH_XA64], [false])
+        AM_CONDITIONAL([ARCH_ARM64], [true])
+        ;;
+    *)
+        AC_MSG_ERROR([Unsupported architecture: $host_cpu])
+        ;;
+esac
 
 ####### Part D - Dependent Product/Library Determination #######
 
@@ -103,6 +119,7 @@ AC_CHECK_HEADERS([sys/endian.h])
 AC_CHECK_HEADERS([byteswap.h])
 AC_CHECK_HEADERS([poll.h])
 AC_CHECK_HEADERS([sys/epoll.h])
+AC_CHECK_HEADERS([valgrind/valgrind.h])
 
 ####### All Done - Generate Configuration Specific Files #######
 
@@ -114,6 +131,7 @@ AC_CONFIG_FILES([Makefile
                  src/lang/Makefile
                  src/network/Makefile
                  src/protocol/Makefile
+                 src/scheduler/Makefile
                  src/utility/Makefile
                  tests/Makefile])
 AC_OUTPUT

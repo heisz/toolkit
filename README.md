@@ -83,6 +83,15 @@ Note: The original forms of this library incorporated a custom built security
 layer.  Best practice (now, well, even then) would dictate using audited code
 like OpenSSL, HeartBleed bug notwithstanding.  Some remnants might remain...
 
+### scheduler
+
+The event.[ch] under network is suitable for a level-triggered epoll server
+which is using thread-worker-pools to undertake long running tasks against
+network requests.  But for real high performance servers trying to handle
+many requests under the C10K problem, a M:N scheduler is needed which uses
+epoll edge handling.  What is implemented here is exactly that, based on the
+Go GMP scheduler (without the GC and intended for C architectures, not Go).
+
 ### utility
 
 This directory contains various 'standard' data structures and algorithms used

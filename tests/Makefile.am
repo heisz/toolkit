@@ -1,14 +1,14 @@
 #
 # Makefile instance for the toolkit libraries
 #
-# Copyright (C) 1999-2023 J.M. Heisz.  All Rights Reserved.
+# Copyright (C) 1999-2026 J.M. Heisz.  All Rights Reserved.
 # See the LICENSE file accompanying the distribution your rights to use
 # this software.
 #
 
 # Just a bunch of test programs
 bin_PROGRAMS = array buffer db encoding fcgi hash json network \
-               thread xml
+               scheduler thread xml
 
 # Lots of test cases
 array_SOURCES = array.c
@@ -63,6 +63,17 @@ network_LDADD = $(top_builddir)/src/network/stream.lo \
                 -lssl -lcrypto -ldl -lm
 network_LDFLAGS = -static
 
+scheduler_SOURCES = scheduler.c
+scheduler_LDADD = $(top_builddir)/src/network/event.lo \
+                  $(top_builddir)/src/network/socket.lo \
+                  $(top_builddir)/src/protocol/fcgi.lo \
+                  $(top_builddir)/src/utility/buffer.lo \
+                  $(top_builddir)/src/utility/mem.lo \
+                  $(top_builddir)/src/utility/thread.lo \
+                  $(top_builddir)/src/scheduler/libscheduler.la \
+                  -ldl -lm
+scheduler_LDFLAGS = -static
+
 thread_SOURCES = thread.c
 thread_LDADD = $(top_builddir)/src/utility/threadpool.lo \
                $(top_builddir)/src/utility/thread.lo \
@@ -90,34 +101,34 @@ xml_LDADD = $(top_builddir)/src/lang/xml.lo \
             -ldl -lm
 xml_LDFLAGS = -static
 
-http_SOURCES = http.c
-http_LDADD = $(top_builddir)/src/protocol/http.lo \
-             $(top_builddir)/src/network/event.lo \
-             $(top_builddir)/src/network/socket.lo \
-             $(top_builddir)/src/network/stream.lo \
-             $(top_builddir)/src/utility/thread.lo \
-             $(top_builddir)/src/utility/hash.lo \
-             $(top_builddir)/src/utility/buffer.lo \
-             $(top_builddir)/src/utility/log.lo \
-             $(top_builddir)/src/utility/mem.lo \
-             -lssl -lcrypto -lpthread -ldl -lm
-http_LDFLAGS = -static
+# http_SOURCES = http.c
+# http_LDADD = $(top_builddir)/src/protocol/http.lo \
+#              $(top_builddir)/src/network/event.lo \
+#              $(top_builddir)/src/network/socket.lo \
+#              $(top_builddir)/src/network/stream.lo \
+#              $(top_builddir)/src/utility/thread.lo \
+#              $(top_builddir)/src/utility/hash.lo \
+#              $(top_builddir)/src/utility/buffer.lo \
+#              $(top_builddir)/src/utility/log.lo \
+#              $(top_builddir)/src/utility/mem.lo \
+#              -lssl -lcrypto -lpthread -ldl -lm
+# http_LDFLAGS = -static
 
-bayeux_SOURCES = bayeux.c
-bayeux_LDADD = $(top_builddir)/src/protocol/bayeux.lo \
-               $(top_builddir)/src/protocol/http.lo \
-               $(top_builddir)/src/lang/encoding.lo \
-               $(top_builddir)/src/lang/json.lo \
-               $(top_builddir)/src/network/socket.lo \
-               $(top_builddir)/src/network/stream.lo \
-               $(top_builddir)/src/utility/array.lo \
-               $(top_builddir)/src/utility/buffer.lo \
-               $(top_builddir)/src/utility/hash.lo \
-               $(top_builddir)/src/utility/log.lo \
-               $(top_builddir)/src/utility/thread.lo \
-               $(top_builddir)/src/utility/mem.lo \
-               -lpthread -lssl -lcrypto -ldl -lm
-bayeux_LDFLAGS = -static
+# bayeux_SOURCES = bayeux.c
+# bayeux_LDADD = $(top_builddir)/src/protocol/bayeux.lo \
+#                $(top_builddir)/src/protocol/http.lo \
+#                $(top_builddir)/src/lang/encoding.lo \
+#                $(top_builddir)/src/lang/json.lo \
+#                $(top_builddir)/src/network/socket.lo \
+#                $(top_builddir)/src/network/stream.lo \
+#                $(top_builddir)/src/utility/array.lo \
+#                $(top_builddir)/src/utility/buffer.lo \
+#                $(top_builddir)/src/utility/hash.lo \
+#                $(top_builddir)/src/utility/log.lo \
+#                $(top_builddir)/src/utility/thread.lo \
+#                $(top_builddir)/src/utility/mem.lo \
+#                -lpthread -lssl -lcrypto -ldl -lm
+# bayeux_LDFLAGS = -static
 
 # Related inclusion locations and other options
 AM_CPPFLAGS = -I$(top_srcdir) \
@@ -125,6 +136,7 @@ AM_CPPFLAGS = -I$(top_srcdir) \
               -I$(top_srcdir)/src/lang \
               -I$(top_srcdir)/src/network \
               -I$(top_srcdir)/src/protocol \
+              -I$(top_srcdir)/src/scheduler \
               -I$(top_srcdir)/src/utility
 
 # Removes the automake/autoconf generated files for ultra-clean source tree
