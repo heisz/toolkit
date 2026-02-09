@@ -8,6 +8,7 @@
 #include "stdconfig.h"
 #include "scheduler.h"
 #include "schedulerint.h"
+#include "channel.h"
 #include "socket.h"
 #include "thread.h"
 #include "mem.h"
@@ -98,6 +99,72 @@ static void *netpollThread(void *arg) {
     return NULL;
 }
 
+#define CHAN_TEST_COUNT 10
+
+static void chanProducer(void *arg) {
+    struct GMPS_Channel *ch = (struct GMPS_Channel *) arg;
+    int idx;
+
+    for (idx = 0; idx < CHAN_TEST_COUNT; idx++) {
+        void *val = (void *)(intptr_t)(idx + 1);
+        int rc = GMPS_ChannelSend(ch, val);
+        (void) fprintf(stderr,
+            "[Chan] Sent %d, rc=%d\n", idx + 1, rc);
+    }
+    (void) fprintf(stderr, "[Chan] Producer done\n");
+}
+
+static void chanConsumer(void *arg) {
+    struct GMPS_Channel *ch = (struct GMPS_Channel *) arg;
+    void *val;
+    int idx;
+
+    for (idx = 0; idx < CHAN_TEST_COUNT; idx++) {
+        int rc = GMPS_ChannelRecv(ch, &val);
+        (void) fprintf(stderr,
+            "[Chan] Recv %d, rc=%d\n",
+            (int)(intptr_t) val, rc);
+    }
+    (void) fprintf(stderr, "[Chan] Consumer done\n");
+}
+
+static void chanBufProducer(void *arg) {
+    struct GMPS_Channel *ch = (struct GMPS_Channel *) arg;
+    int idx;
+
+    for (idx = 0; idx < CHAN_TEST_COUNT; idx++) {
+        void *val = (void *)(intptr_t)(idx + 100);
+        int rc = GMPS_ChannelSend(ch, val);
+        (void) fprintf(stderr,
+            "[BufChan] Sent %d, rc=%d\n",
+            idx + 100, rc);
+    }
+    GMPS_ChannelClose(ch);
+    (void) fprintf(stderr,
+        "[BufChan] Producer done, channel closed\n");
+}
+
+static void chanBufConsumer(void *arg) {
+    struct GMPS_Channel *ch = (struct GMPS_Channel *) arg;
+    void *val;
+    int rc;
+
+    /* Drain until closed */
+    while (TRUE) {
+        rc = GMPS_ChannelRecv(ch, &val);
+        if (!rc) {
+            (void) fprintf(stderr,
+                "[BufChan] Recv FALSE (closed)\n");
+            break;
+        }
+        (void) fprintf(stderr,
+            "[BufChan] Recv %d, rc=%d\n",
+            (int)(intptr_t) val, rc);
+    }
+    (void) fprintf(stderr,
+        "[BufChan] Consumer done\n");
+}
+
 /**
  * Where all of the fun begins!
  */
@@ -151,6 +218,16 @@ int main(int argc, char **argv) {
 
     GMPS_Fiber *acc = GMPS_Start(fcgi_accept_loop,
                           (void *)(uintptr_t) svcConnectHandle);
+
+    /* Unbuffered channel: producer/consumer must rendezvous */
+    struct GMPS_Channel *unbufCh = GMPS_ChannelCreate(0);
+    (void) GMPS_Start(chanProducer, unbufCh);
+    (void) GMPS_Start(chanConsumer, unbufCh);
+
+    /* Buffered channel with close-drain test */
+    struct GMPS_Channel *bufCh = GMPS_ChannelCreate(4);
+    (void) GMPS_Start(chanBufProducer, bufCh);
+    (void) GMPS_Start(chanBufConsumer, bufCh);
 
     /* External thread to periodically poll for network events */
     WXThread npThread;

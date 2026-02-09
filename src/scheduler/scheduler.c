@@ -14,6 +14,7 @@
 #include <errno.h>
 #include "scheduler.h"
 #include "schedulerint.h"
+#include "channel.h"
 #include "mem.h"
 #ifdef HAVE_VALGRIND_VALGRIND_H
 #include <valgrind/valgrind.h>
@@ -424,12 +425,10 @@ static void fiberStartFn() {
     thr->parkArg = NULL;
     thr->parkFiber = NULL;
 
-    /* Disassociate before release to avoid write-after-free on reuse */
+    /* Disassociate and defer release to g0 (still on this stack) */
     thr->currFiber = NULL;
     fbr->thread = NULL;
-
-    /* Place fiber on free list for return to scheduler */
-    releaseFiber(proc, fbr);
+    thr->exitFiber = fbr;
 
     /* Jump to g0 context without save (we're done here) */
     _gmps_ctx_jump(&(thr->g0->ctx));
@@ -1042,6 +1041,12 @@ schedule:
         thr->parkFiber = NULL;
     }
 
+    /* Deferred release for completed fibers (safe now, on g0 stack) */
+    if (thr->exitFiber != NULL) {
+        releaseFiber(proc, thr->exitFiber);
+        thr->exitFiber = NULL;
+    }
+
     /* When it returns, start the process all over again */
     goto schedule;
 }
@@ -1217,7 +1222,99 @@ static int netpoll(int32_t delay, GMPS_FiberQueue *q) {
     return rc;
 }
 
-/* Leave these to last, the public methods for managing the scheduler */
+/********** Chanel management functions **********/
+
+/* Stack-allocated waiter for a fiber blocked on a channel operation */
+typedef struct GMPS_Waiter {
+    GMPS_Fiber *fiber;
+    void **valRef;
+    int success;
+    struct GMPS_Waiter *nextWaiter;
+} GMPS_Waiter;
+
+/* Thought about somehow reusing the fiber queue, but atomics... */
+typedef struct GMPS_WaiterQueue {
+    GMPS_Waiter *head;
+    GMPS_Waiter *tail;
+} GMPS_WaiterQueue;
+
+static void waiterQueueInit(GMPS_WaiterQueue *q) {
+    q->head = NULL;
+    q->tail = NULL;
+}
+
+static void waiterQueuePush(GMPS_WaiterQueue *q, GMPS_Waiter *w) {
+    w->nextWaiter = NULL;
+    if (q->tail != NULL) {
+        q->tail->nextWaiter = w;
+    } else {
+        q->head = w;
+    }
+    q->tail = w;
+}
+
+/* Also a FIFO queue like the fibers */
+static GMPS_Waiter *waiterQueuePop(GMPS_WaiterQueue *q) {
+    GMPS_Waiter *w = q->head;
+    if (w == NULL) return NULL;
+    q->head = w->nextWaiter;
+    if (q->head == NULL) q->tail = NULL;
+    w->nextWaiter = NULL;
+    return w;
+}
+
+/* The channel itself, not public because of full queue instances */
+struct GMPS_Channel {
+    WXThread_Mutex lock;
+
+    /* Ring buffer for buffered channels (NULL/0 if unbuffered) */
+    void **buff;
+    uint32_t capacity, count;
+    uint32_t sendIdx, recvIdx;
+
+    /* Queues of blocked senders and receivers */
+    GMPS_WaiterQueue sendQ, recvQ;
+
+    /* Marker for closing of a channel */
+    int closed;
+};  
+
+/* Wake a fiber blocked on a channel operation */
+static void chanWakeFiber(GMPS_Fiber *fbr) {
+    atomic_store(&(fbr->status), SFBR_RUNNABLE);
+    globRunQPut(fbr);
+    wakeProc();
+}
+
+/* Stack-allocated context to pass wait information to the park callbacks */
+typedef struct ChannelParkCtx {
+    GMPS_Channel *ch;
+    GMPS_Waiter *waiter;
+} ChannelParkCtx;
+
+/* Enqueue sender waiter and release channel lock, on g0 */
+static int chanSendParkFn(GMPS_Fiber *fbr, void *arg) {
+    ChannelParkCtx *ctx = (ChannelParkCtx *) arg;
+
+    atomic_store(&(fbr->status), SFBR_WAITING);
+    waiterQueuePush(&(ctx->ch->sendQ), ctx->waiter);
+    WXThread_MutexUnlock(&(ctx->ch->lock));
+
+    return TRUE;
+}
+
+/* Enqueue receiver waiter and release channel lock, on g0 */
+static int chanRecvParkFn(GMPS_Fiber *fbr, void *arg) {
+    ChannelParkCtx *ctx = (ChannelParkCtx *) arg;
+
+    atomic_store(&(fbr->status), SFBR_WAITING);
+    waiterQueuePush(&(ctx->ch->recvQ), ctx->waiter);
+    WXThread_MutexUnlock(&(ctx->ch->lock));
+
+    return TRUE;
+}
+
+/* Leave these to last, the public methods for fiber management */
 
 /**
  * Initialize the global scheduler instance with the provided processor
@@ -1527,4 +1624,191 @@ void GMPS_ExitSyscall(void) {
 
     /* When we wake up, we're on g0 - jump into schedule loop */
     schedule();
+}
+
+/**
+ * Create a channel for inter-fiber communication.  Capacity of zero creates
+ * an unbuffered (synchronous) channel, otherwise a buffered channel with the
+ * given capacity.  Returns NULL on allocation failure.
+ */
+GMPS_Channel *GMPS_ChannelCreate(uint32_t capacity) {
+    GMPS_Channel *ch = (GMPS_Channel *) WXCalloc(sizeof(GMPS_Channel));
+    if (ch == NULL) return NULL;
+
+    if (WXThread_MutexInit(&(ch->lock), FALSE) != WXTRC_OK) {
+        WXFree(ch);
+        return NULL;
+    }
+
+    /* Allocate an asynchronous buffer if requested */
+    if (capacity > 0) {
+        ch->buff = (void **) WXCalloc(capacity * sizeof(void *));
+        if (ch->buff == NULL) {
+            WXThread_MutexDestroy(&(ch->lock));
+            WXFree(ch);
+            return NULL;
+        }
+    }
+
+    ch->capacity = capacity;
+    ch->count = 0;
+    ch->sendIdx = ch->recvIdx = 0;
+    waiterQueueInit(&(ch->sendQ));
+    waiterQueueInit(&(ch->recvQ));
+    ch->closed = FALSE;
+
+    return ch;
+}
+
+/**
+ * Send a value on the specified channel.  Blocks the calling fiber until a
+ * receiver is available (unbuffered) or a buffer slot is available (buffered).  * Returns TRUE on success, FALSE if the channel is closed.
+ */
+int GMPS_ChannelSend(GMPS_Channel *ch, void *val) {
+    GMPS_Thread *thr = _tlsThread;
+    GMPS_Fiber *fbr = thr->currFiber;
+    GMPS_Waiter *recv, waiter;
+    ChannelParkCtx ctx;
+
+    WXThread_MutexLock(&(ch->lock));
+
+    /* Closed channel, no sending allowed */
+    if (ch->closed) {
+        WXThread_MutexUnlock(&(ch->lock));
+        return FALSE;
+    }
+
+    /* If we have a waiting receiver, pass along the value */
+    recv = waiterQueuePop(&(ch->recvQ));
+    if (recv != NULL) {
+        *(recv->valRef) = val;
+        recv->success = TRUE;
+        GMPS_Fiber *recvFbr = recv->fiber;
+        WXThread_MutexUnlock(&(ch->lock));
+        chanWakeFiber(recvFbr);
+        return TRUE;
+    }
+
+    /* If there is space in the buffer, enqueue it */
+    if ((ch->buff != NULL) && (ch->count < ch->capacity)) {
+        ch->buff[ch->sendIdx % ch->capacity] = val;
+        ch->sendIdx++;
+        ch->count++;
+        WXThread_MutexUnlock(&(ch->lock));
+        return TRUE;
+    }
+
+    /* Alas, we need to wait for somewhere to put the message */
+    waiter.fiber = fbr;
+    waiter.valRef = &val;
+    waiter.success = FALSE;
+    waiter.nextWaiter = NULL;
+    ctx.ch = ch;
+    ctx.waiter = &waiter;
+
+    /* Yield with lock held, park callback enqueues and unlocks channel */
+    yieldFiber(fbr, chanSendParkFn, &ctx);
+    return waiter.success;
+}
+
+/**
+ * Receive a value from the channel.  Blocks the calling fiber until a sender
+ * provides a message (unbuffered) or a buffered value is ready.  On success
+ * stores the value in valRef and returns TRUE.  Returns FALSE if the channel
+ * is closed and empty (valRef is set to NULL).
+ */
+int GMPS_ChannelRecv(GMPS_Channel *ch, void **valRef) {
+    GMPS_Thread *thr = _tlsThread;
+    GMPS_Fiber *fbr = thr->currFiber;
+    GMPS_Waiter *send, waiter;
+    ChannelParkCtx ctx;
+
+    WXThread_MutexLock(&(ch->lock));
+
+    /* Handle waiting sender case (could be waiting on full buffer) */
+    send = waiterQueuePop(&(ch->sendQ));
+    if (send != NULL) {
+        if ((ch->buff != NULL) && (ch->count > 0)) {
+            /* Buffered data, pull value and push waiting sender into buff */
+            *valRef = ch->buff[ch->recvIdx % ch->capacity];
+            ch->recvIdx++;
+            ch->buff[ch->sendIdx % ch->capacity] = *(send->valRef);
+            ch->sendIdx++;
+        } else {
+            /* Unbuffered, take directly from sender */
+            *valRef = *(send->valRef);
+        }
+        send->success = TRUE;
+        GMPS_Fiber *sendFbr = send->fiber;
+        WXThread_MutexUnlock(&(ch->lock));
+        chanWakeFiber(sendFbr);
+        return TRUE;
+    }
+
+    /* Buffered values await, take the oldest */
+    if ((ch->buff != NULL) && (ch->count > 0)) {
+        *valRef = ch->buff[ch->recvIdx % ch->capacity];
+        ch->recvIdx++;
+        ch->count--;
+        WXThread_MutexUnlock(&(ch->lock));
+        return TRUE;
+    }
+
+    /* If channel closed, there are no more values */
+    if (ch->closed) {
+        WXThread_MutexUnlock(&(ch->lock));
+        *valRef = NULL;
+        return FALSE;
+    }
+
+    /* Alas, we need to wait for someone to reach out and touch us */
+    waiter.fiber = fbr;
+    waiter.valRef = valRef;
+    waiter.success = FALSE;
+    waiter.nextWaiter = NULL;
+    ctx.ch = ch;
+    ctx.waiter = &waiter;
+
+    /* Yield with lock held, park callback enqueues and unlocks channel */
+    yieldFiber(fbr, chanRecvParkFn, &ctx);
+    return waiter.success;
+}
+
+/**
+ * Close the channel.  Wakes all blocked senders (returning FALSE) and all
+ * blocked receivers (returning FALSE with valRef set to NULL).  Subsequent
+ * sends return FALSE.  Receives on a closed channel still drain any buffered
+ * values before returning FALSE.
+ */
+void GMPS_ChannelClose(GMPS_Channel *ch) {
+    GMPS_Waiter *w;
+
+    WXThread_MutexLock(&(ch->lock));
+    ch->closed = TRUE;
+
+    /* Wake all blocked receivers with failure */
+    while ((w = waiterQueuePop(&(ch->recvQ))) != NULL) {
+        *(w->valRef) = NULL;
+        w->success = FALSE;
+        chanWakeFiber(w->fiber);
+    }
+
+    /* Wake all blocked senders with failure */
+    while ((w = waiterQueuePop(&(ch->sendQ))) != NULL) {
+        w->success = FALSE;
+        chanWakeFiber(w->fiber);
+    }
+
+    WXThread_MutexUnlock(&(ch->lock));
+}
+
+/**
+ * Destroy a channel and free all associated resources.  The channel must not
+ * have any fibers blocked on it when destroyed.
+ */
+void GMPS_ChannelDestroy(GMPS_Channel *ch) {
+    if (ch == NULL) return;
+    WXThread_MutexDestroy(&(ch->lock));
+    if (ch->buff != NULL) WXFree(ch->buff);
+    WXFree(ch);
 }

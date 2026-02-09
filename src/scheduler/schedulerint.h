@@ -199,6 +199,9 @@ struct GMPS_Thread {
     void *parkArg;
     GMPS_Fiber *parkFiber;
 
+    /* Completed fiber awaiting release on g0 (deffered from own stack) */
+    GMPS_Fiber *exitFiber;
+
     /* Targetted processor to run on this thread */
     GMPS_Processor *targProcessor;
 
