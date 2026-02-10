@@ -247,9 +247,9 @@ struct GMPS_Sched {
 
 /* For lack of a better place, wrap the global run queue here */
 static void globRunQPut(GMPS_Fiber *fbr) {
-    WXThread_MutexLock(&(scheduler.lock));
+    (void) WXThread_MutexLock(&(scheduler.lock));
     fiberQueuePush(&(scheduler.runQ), fbr);
-    WXThread_MutexUnlock(&(scheduler.lock));
+    (void) WXThread_MutexUnlock(&(scheduler.lock));
 }
 
 /* Only four forward declarations, not bad */
@@ -346,13 +346,13 @@ static GMPS_Fiber *getFiber(GMPS_Processor *proc) {
     }
 
     /* Try global cache */
-    WXThread_MutexLock(&(scheduler.freeFiberLock));
+    (void) WXThread_MutexLock(&(scheduler.freeFiberLock));
     fbr = scheduler.freeFiberList;
     if (fbr != NULL) {
         scheduler.freeFiberList = atomic_load(&(fbr->nextFiber));
         scheduler.freeFiberCount--;
     }
-    WXThread_MutexUnlock(&(scheduler.freeFiberLock));
+    (void) WXThread_MutexUnlock(&(scheduler.freeFiberLock));
     if (fbr != NULL) {
         atomic_store(&(fbr->nextFiber), NULL);
         return fbr;
@@ -387,11 +387,11 @@ static void releaseFiber(GMPS_Processor *proc, GMPS_Fiber *fbr) {
     }
 
     /* Add to global cache */
-    WXThread_MutexLock(&(scheduler.freeFiberLock));
+    (void) WXThread_MutexLock(&(scheduler.freeFiberLock));
     atomic_store(&(fbr->nextFiber), scheduler.freeFiberList);
     scheduler.freeFiberList = fbr;
     scheduler.freeFiberCount++;
-    WXThread_MutexUnlock(&(scheduler.freeFiberLock));
+    (void) WXThread_MutexUnlock(&(scheduler.freeFiberLock));
 }
 
 /* Entry point for a fiber, launches the caller provided function/arg */
@@ -509,11 +509,11 @@ static int runQPutSlow(GMPS_Processor *proc, GMPS_Fiber *fbr,
     }
 
     /* Put on global queue */
-    WXThread_MutexLock(&(scheduler.lock));
+    (void) WXThread_MutexLock(&(scheduler.lock));
     for (idx = 0; idx <= cnt; idx++) {
         fiberQueuePush(&(scheduler.runQ), batch[idx]);
     }
-    WXThread_MutexUnlock(&(scheduler.lock));
+    (void) WXThread_MutexUnlock(&(scheduler.lock));
 
 #ifdef SCHEDULER_DEBUG
     (void) fprintf(stderr, "--> Half to global queue, total %lu\n",
@@ -715,15 +715,15 @@ static void wakeProc(void) {
     }
 
     /* Grab an idle processor */
-    WXThread_MutexLock(&(scheduler.lock));
+    (void) WXThread_MutexLock(&(scheduler.lock));
     proc = idleProcGet();
     if (proc == NULL) {
         /* Processor no longer idle, revert spinning marker and proceed */
         atomic_fetch_sub(&(scheduler.spinningCount), 1);
-        WXThread_MutexUnlock(&(scheduler.lock));
+        (void) WXThread_MutexUnlock(&(scheduler.lock));
         return;
     }
-    WXThread_MutexUnlock(&(scheduler.lock));
+    (void) WXThread_MutexUnlock(&(scheduler.lock));
 
     /* Launch a spinning thread with the processor */
     startThread(proc, TRUE);
@@ -744,9 +744,9 @@ static void handoff(GMPS_Processor *proc) {
     }
 
     /* No work to do, just put the processor on the idle list */
-    WXThread_MutexLock(&(scheduler.lock));
+    (void) WXThread_MutexLock(&(scheduler.lock));
     idleProcPut(proc);
-    WXThread_MutexUnlock(&(scheduler.lock));
+    (void) WXThread_MutexUnlock(&(scheduler.lock));
 }
 
 /********** Thread management functions **********/
@@ -763,7 +763,7 @@ static GMPS_Thread *allocThread() {
         return NULL;
     }
     if (WXThread_CondInit(&(thr->idleCond)) != WXTRC_OK) {
-        WXThread_MutexDestroy(&(thr->idleLock));
+        (void) WXThread_MutexDestroy(&(thr->idleLock));
         WXFree(thr);
         return NULL;
     }
@@ -773,8 +773,8 @@ static GMPS_Thread *allocThread() {
     /* Create the g0/scheduling fiber */
     thr->g0 = allocFiber();
     if (thr->g0 == NULL) {
-        WXThread_CondDestroy(&(thr->idleCond));
-        WXThread_MutexDestroy(&(thr->idleLock));
+        (void) WXThread_CondDestroy(&(thr->idleCond));
+        (void) WXThread_MutexDestroy(&(thr->idleLock));
         WXFree(thr);
         return NULL;
     }
@@ -810,9 +810,9 @@ top:
     *fromQueue = FALSE;
     if (((proc->schedTick % 61) == 0) &&
             (!fiberQueueIsEmpty(&(scheduler.runQ)))) {
-        WXThread_MutexLock(&(scheduler.lock));
+        (void) WXThread_MutexLock(&(scheduler.lock));
         fbr = globRunQGet(proc, 0);
-        WXThread_MutexUnlock(&(scheduler.lock));
+        (void) WXThread_MutexUnlock(&(scheduler.lock));
         if (fbr != NULL) {
 #ifdef SCHEDULER_DEBUG
             (void) fprintf(stderr, "--> findRun: got fbr-%lu from global\n",
@@ -834,9 +834,9 @@ top:
 
     /* Look to global queue next */
     if (!fiberQueueIsEmpty(&(scheduler.runQ))) {
-        WXThread_MutexLock(&(scheduler.lock));
+        (void) WXThread_MutexLock(&(scheduler.lock));
         fbr = globRunQGet(proc, 0);
-        WXThread_MutexUnlock(&(scheduler.lock));
+        (void) WXThread_MutexUnlock(&(scheduler.lock));
         if (fbr != NULL) {
 #ifdef SCHEDULER_DEBUG
             (void) fprintf(stderr, "--> findRun: got fbr-%lu from global\n",
@@ -852,12 +852,12 @@ top:
         fbr = fiberQueuePop(&netList);
 
         /* Put rest on global queue */
-        WXThread_MutexLock(&(scheduler.lock));
+        (void) WXThread_MutexLock(&(scheduler.lock));
         while (!fiberQueueIsEmpty(&netList)) {
             GMPS_Fiber *nf = fiberQueuePop(&netList);
             fiberQueuePush(&(scheduler.runQ), nf);
         }
-        WXThread_MutexUnlock(&(scheduler.lock));
+        (void) WXThread_MutexUnlock(&(scheduler.lock));
 
         return fbr;
     }
@@ -880,11 +880,11 @@ top:
     /* Nothing left to do - release processor and park thread */
 
     /* First check global queue one more time with lock held */
-    WXThread_MutexLock(&(scheduler.lock));
+    (void) WXThread_MutexLock(&(scheduler.lock));
     if (!fiberQueueIsEmpty(&(scheduler.runQ))) {
         fbr = globRunQGet(proc, 0);
         if (fbr != NULL) {
-            WXThread_MutexUnlock(&(scheduler.lock));
+            (void) WXThread_MutexUnlock(&(scheduler.lock));
             return fbr;
         }
     }
@@ -892,7 +892,7 @@ top:
     /* Release processor */
     GMPS_Processor *oldp = releaseProc(thr);
     idleProcPut(oldp);
-    WXThread_MutexUnlock(&(scheduler.lock));
+    (void) WXThread_MutexUnlock(&(scheduler.lock));
 
     /* Stop spinning if we were */
     if (atomic_load(&(thr->spinning))) {
@@ -903,9 +903,9 @@ top:
         for (idx = 0; idx < scheduler.procCount; idx++) {
             GMPS_Processor *targ = scheduler.processors[idx];
             if ((targ != NULL) && (!runQIsEmpty(targ))) {
-                WXThread_MutexLock(&(scheduler.lock));
+                (void) WXThread_MutexLock(&(scheduler.lock));
                 targ = idleProcGet();
-                WXThread_MutexUnlock(&(scheduler.lock));
+                (void) WXThread_MutexUnlock(&(scheduler.lock));
                 if (targ != NULL) {
                     acquireProc(thr, targ);
                     atomic_store(&(thr->spinning), TRUE);
@@ -1100,12 +1100,12 @@ static void startThread(GMPS_Processor *proc, int spinning) {
     GMPS_Thread *thr;
 
     /* Grab processor if not provided */
-    WXThread_MutexLock(&(scheduler.lock));
+    (void) WXThread_MutexLock(&(scheduler.lock));
     if (proc == NULL) {
         proc = idleProcGet();
         if (proc == NULL) {
             /* No idle processors, something woke up */
-            WXThread_MutexUnlock(&(scheduler.lock));
+            (void) WXThread_MutexUnlock(&(scheduler.lock));
             if (spinning) {
                 atomic_fetch_sub(&(scheduler.spinningCount), 1);
             }
@@ -1116,14 +1116,14 @@ static void startThread(GMPS_Processor *proc, int spinning) {
     /* Check for idle thread, start new one if unavailable */
     thr = scheduler.idleThreadList;
     if (thr == NULL) {
-        WXThread_MutexUnlock(&(scheduler.lock));
+        (void) WXThread_MutexUnlock(&(scheduler.lock));
 
         /* Create new thread instance with target already set */
         thr = newThread(proc, spinning);
         if (thr == NULL) {
-            WXThread_MutexLock(&(scheduler.lock));
+            (void) WXThread_MutexLock(&(scheduler.lock));
             idleProcPut(proc);
-            WXThread_MutexUnlock(&(scheduler.lock));
+            (void) WXThread_MutexUnlock(&(scheduler.lock));
             if (spinning) {
                 atomic_fetch_sub(&(scheduler.spinningCount), 1);
             }
@@ -1137,27 +1137,27 @@ static void startThread(GMPS_Processor *proc, int spinning) {
     scheduler.idleThreadList = thr->idleNextThread;
     thr->idleNextThread = NULL;
     scheduler.idleThreadCount--;
-    WXThread_MutexUnlock(&(scheduler.lock));
+    (void) WXThread_MutexUnlock(&(scheduler.lock));
 
     thr->targProcessor = proc;
     atomic_store(&(thr->spinning), spinning);
 
     /* Wake the idle thread instance */
-    WXThread_MutexLock(&(thr->idleLock));
+    (void) WXThread_MutexLock(&(thr->idleLock));
     atomic_store(&(thr->idle), FALSE);
-    WXThread_CondSignal(&(thr->idleCond));
-    WXThread_MutexUnlock(&(thr->idleLock));
+    (void) WXThread_CondSignal(&(thr->idleCond));
+    (void) WXThread_MutexUnlock(&(thr->idleLock));
 }
 
 /* Park the thread in the idle list and wait on condition */
 static void parkThread(GMPS_Thread *thr) {
-    WXThread_MutexLock(&(scheduler.lock));
+    (void) WXThread_MutexLock(&(scheduler.lock));
     thr->idleNextThread = scheduler.idleThreadList;
     scheduler.idleThreadList = thr;
     scheduler.idleThreadCount++;
-    WXThread_MutexUnlock(&(scheduler.lock));
+    (void) WXThread_MutexUnlock(&(scheduler.lock));
 
-    WXThread_MutexLock(&(thr->idleLock));
+    (void) WXThread_MutexLock(&(thr->idleLock));
     atomic_store(&(thr->idle), TRUE);
     while (atomic_load(&(thr->idle))) {
 #ifdef SCHEDULER_DEBUG
@@ -1165,13 +1165,13 @@ static void parkThread(GMPS_Thread *thr) {
                            (long unsigned) thr->id);
 #endif
         /* Zzzzzzzzzz */
-        WXThread_CondWait(&(thr->idleCond), &(thr->idleLock));
+        (void) WXThread_CondWait(&(thr->idleCond), &(thr->idleLock));
 #ifdef SCHEDULER_DEBUG
         (void) fprintf(stderr, "--> thr-%lu woken (idle)\n",
                            (long unsigned) thr->id);
 #endif
     }
-    WXThread_MutexUnlock(&(thr->idleLock));
+    (void) WXThread_MutexUnlock(&(thr->idleLock));
 
     /* Awake!  Grab the leading processor */
     acquireProc(thr, thr->targProcessor);
@@ -1298,7 +1298,7 @@ static int chanSendParkFn(GMPS_Fiber *fbr, void *arg) {
 
     atomic_store(&(fbr->status), SFBR_WAITING);
     waiterQueuePush(&(ctx->ch->sendQ), ctx->waiter);
-    WXThread_MutexUnlock(&(ctx->ch->lock));
+    (void) WXThread_MutexUnlock(&(ctx->ch->lock));
 
     return TRUE;
 }
@@ -1309,7 +1309,7 @@ static int chanRecvParkFn(GMPS_Fiber *fbr, void *arg) {
 
     atomic_store(&(fbr->status), SFBR_WAITING);
     waiterQueuePush(&(ctx->ch->recvQ), ctx->waiter);
-    WXThread_MutexUnlock(&(ctx->ch->lock));
+    (void) WXThread_MutexUnlock(&(ctx->ch->lock));
 
     return TRUE;
 }
@@ -1361,7 +1361,7 @@ int GMPS_SchedulerInit(int procCount) {
     fiberQueueInit(&(scheduler.runQ));
 
     /* Initialize the auxiliary locks for associated data management */
-    WXThread_MutexInit(&(scheduler.freeFiberLock), FALSE);
+    (void) WXThread_MutexInit(&(scheduler.freeFiberLock), FALSE);
 
     /* Create the primary thread instance (attached to this thread) */
     GMPS_Thread *thr = allocThread();
@@ -1528,12 +1528,12 @@ int GMPS_NetPoll(int32_t timeout) {
     if (cnt <= 0) return 0;
 
     /* Push all ready fibers onto the global run queue */
-    WXThread_MutexLock(&(scheduler.lock));
+    (void) WXThread_MutexLock(&(scheduler.lock));
     while (!fiberQueueIsEmpty(&netList)) {
         fbr = fiberQueuePop(&netList);
         fiberQueuePush(&(scheduler.runQ), fbr);
     }
-    WXThread_MutexUnlock(&(scheduler.lock));
+    (void) WXThread_MutexUnlock(&(scheduler.lock));
 
     /* Wake a processor, it will cascade to others as needed */
     if ((atomic_load(&(scheduler.idleProcCount)) > 0) &&
@@ -1598,9 +1598,9 @@ void GMPS_ExitSyscall(void) {
     }
 
     /* Slow path: try to get any idle processor */
-    WXThread_MutexLock(&(scheduler.lock));
+    (void) WXThread_MutexLock(&(scheduler.lock));
     proc = idleProcGet();
-    WXThread_MutexUnlock(&(scheduler.lock));
+    (void) WXThread_MutexUnlock(&(scheduler.lock));
     if (proc != NULL) {
         acquireProc(thr, proc);
         atomic_store(&(fbr->status), SFBR_RUNNING);
@@ -1644,7 +1644,7 @@ GMPS_Channel *GMPS_ChannelCreate(uint32_t capacity) {
     if (capacity > 0) {
         ch->buff = (void **) WXCalloc(capacity * sizeof(void *));
         if (ch->buff == NULL) {
-            WXThread_MutexDestroy(&(ch->lock));
+            (void) WXThread_MutexDestroy(&(ch->lock));
             WXFree(ch);
             return NULL;
         }
@@ -1670,11 +1670,11 @@ int GMPS_ChannelSend(GMPS_Channel *ch, void *val) {
     GMPS_Waiter *recv, waiter;
     ChannelParkCtx ctx;
 
-    WXThread_MutexLock(&(ch->lock));
+    (void) WXThread_MutexLock(&(ch->lock));
 
     /* Closed channel, no sending allowed */
     if (ch->closed) {
-        WXThread_MutexUnlock(&(ch->lock));
+        (void) WXThread_MutexUnlock(&(ch->lock));
         return FALSE;
     }
 
@@ -1684,7 +1684,7 @@ int GMPS_ChannelSend(GMPS_Channel *ch, void *val) {
         *(recv->valRef) = val;
         recv->success = TRUE;
         GMPS_Fiber *recvFbr = recv->fiber;
-        WXThread_MutexUnlock(&(ch->lock));
+        (void) WXThread_MutexUnlock(&(ch->lock));
         chanWakeFiber(recvFbr);
         return TRUE;
     }
@@ -1694,7 +1694,7 @@ int GMPS_ChannelSend(GMPS_Channel *ch, void *val) {
         ch->buff[ch->sendIdx % ch->capacity] = val;
         ch->sendIdx++;
         ch->count++;
-        WXThread_MutexUnlock(&(ch->lock));
+        (void) WXThread_MutexUnlock(&(ch->lock));
         return TRUE;
     }
 
@@ -1723,7 +1723,7 @@ int GMPS_ChannelRecv(GMPS_Channel *ch, void **valRef) {
     GMPS_Waiter *send, waiter;
     ChannelParkCtx ctx;
 
-    WXThread_MutexLock(&(ch->lock));
+    (void) WXThread_MutexLock(&(ch->lock));
 
     /* Handle waiting sender case (could be waiting on full buffer) */
     send = waiterQueuePop(&(ch->sendQ));
@@ -1740,7 +1740,7 @@ int GMPS_ChannelRecv(GMPS_Channel *ch, void **valRef) {
         }
         send->success = TRUE;
         GMPS_Fiber *sendFbr = send->fiber;
-        WXThread_MutexUnlock(&(ch->lock));
+        (void) WXThread_MutexUnlock(&(ch->lock));
         chanWakeFiber(sendFbr);
         return TRUE;
     }
@@ -1750,13 +1750,13 @@ int GMPS_ChannelRecv(GMPS_Channel *ch, void **valRef) {
         *valRef = ch->buff[ch->recvIdx % ch->capacity];
         ch->recvIdx++;
         ch->count--;
-        WXThread_MutexUnlock(&(ch->lock));
+        (void) WXThread_MutexUnlock(&(ch->lock));
         return TRUE;
     }
 
     /* If channel closed, there are no more values */
     if (ch->closed) {
-        WXThread_MutexUnlock(&(ch->lock));
+        (void) WXThread_MutexUnlock(&(ch->lock));
         *valRef = NULL;
         return FALSE;
     }
@@ -1783,7 +1783,7 @@ int GMPS_ChannelRecv(GMPS_Channel *ch, void **valRef) {
 void GMPS_ChannelClose(GMPS_Channel *ch) {
     GMPS_Waiter *w;
 
-    WXThread_MutexLock(&(ch->lock));
+    (void) WXThread_MutexLock(&(ch->lock));
     ch->closed = TRUE;
 
     /* Wake all blocked receivers with failure */
@@ -1799,7 +1799,7 @@ void GMPS_ChannelClose(GMPS_Channel *ch) {
         chanWakeFiber(w->fiber);
     }
 
-    WXThread_MutexUnlock(&(ch->lock));
+    (void) WXThread_MutexUnlock(&(ch->lock));
 }
 
 /**
@@ -1808,7 +1808,7 @@ void GMPS_ChannelClose(GMPS_Channel *ch) {
  */
 void GMPS_ChannelDestroy(GMPS_Channel *ch) {
     if (ch == NULL) return;
-    WXThread_MutexDestroy(&(ch->lock));
+    (void) WXThread_MutexDestroy(&(ch->lock));
     if (ch->buff != NULL) WXFree(ch->buff);
     WXFree(ch);
 }
