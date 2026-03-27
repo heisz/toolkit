@@ -13,6 +13,43 @@
 #include "thread.h"
 #include "mem.h"
 
+static GMPS_FlsKey flsKeyA, flsKeyB;
+static _Atomic(int) flsDestructorCalls = 0;
+
+static void flsDestructor(void *value) {
+    int val = (int)(intptr_t)value;
+    (void) fprintf(stderr, "[FLS] Destructor called with value %d\n", val);
+    atomic_fetch_add(&flsDestructorCalls, 1);
+}
+
+static void flsTestFiber(void *arg) {
+    int id = (int)(intptr_t) arg;
+    void *myValue = (void *)(intptr_t) (id * 100);
+    void *retrieved;
+
+    if (!GMPS_FlsSet(flsKeyA, myValue)) {
+        (void) fprintf(stderr, "[FLS] Fiber %d: FlsSet failed!\n", id);
+        return;
+    }
+    if (!GMPS_FlsSet(flsKeyB, (void *)(intptr_t) (id * 200))) {
+        (void) fprintf(stderr, "[FLS] Fiber %d: FlsSet key2 failed!\n", id);
+        return;
+    }
+
+    /* Yield and verify values persist */
+    GMPS_Yield();
+
+    retrieved = GMPS_FlsGet(flsKeyA);
+    (void) fprintf(stderr, "[FLS] Fiber %d: set %p, got %p - %s\n",
+                   id, myValue, retrieved,
+                   (retrieved == myValue) ? "OK" : "FAIL");
+
+    retrieved = GMPS_FlsGet(flsKeyB);
+    (void) fprintf(stderr, "[FLS] Fiber %d: key2 expected %d, got %d - %s\n",
+                   id, id * 200, (int)(intptr_t) retrieved,
+                   ((int)(intptr_t) retrieved == id * 200) ? "OK" : "FAIL");
+}
+
 static void basicWork(void *arg) {
     int id = (int)(intptr_t)arg;
 
@@ -211,6 +248,18 @@ int main(int argc, char **argv) {
         (void) fprintf(stderr, "Scheduler initialization failed\n");
         exit(1);
     }
+
+    flsKeyA = GMPS_FlsKeyCreate(flsDestructor);
+    flsKeyB = GMPS_FlsKeyCreate(NULL);
+    if ((flsKeyA == GMPS_FLS_INVALID_KEY) ||
+            (flsKeyB == GMPS_FLS_INVALID_KEY)) {
+        (void) fprintf(stderr, "FLS key creation failed\n");
+        exit(1);
+    }
+    (void) fprintf(stderr, "[FLS] Created keys: %u, %u\n", flsKeyA, flsKeyB);
+
+    (void) GMPS_Start(flsTestFiber, (void*) 10);
+    (void) GMPS_Start(flsTestFiber, (void*) 20);
 
     GMPS_Fiber *f1 = GMPS_Start(basicWork, (void*) 1);
     GMPS_Fiber *f2 = GMPS_Start(basicWork, (void*) 2);

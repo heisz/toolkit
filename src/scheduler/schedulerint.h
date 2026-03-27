@@ -130,6 +130,9 @@ struct GMPS_Fiber {
     uint32_t waitEvents;
     uint32_t readyEvents;
 
+    /* Fiber-local storage slots */
+    void *flsData[16];
+
     /* Valgrind stack registration identifier for custom stack tracking */
 #ifdef HAVE_VALGRIND_VALGRIND_H
     unsigned valgrindStackId;

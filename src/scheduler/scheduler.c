@@ -245,6 +245,14 @@ struct GMPS_Sched {
 
 } scheduler;
 
+/* Global registry for fiber-local storage support */
+#define GMPS_FLS_MAX_KEYS 16
+static struct {
+    WXThread_Mutex lock;
+    _Atomic(uint32_t) keyCount;
+    GMPS_FlsDestructor destructors[GMPS_FLS_MAX_KEYS];
+} flsRegistry;
+
 /* For lack of a better place, wrap the global run queue here */
 static void globRunQPut(GMPS_Fiber *fbr) {
     (void) WXThread_MutexLock(&(scheduler.lock));
@@ -364,12 +372,27 @@ static GMPS_Fiber *getFiber(GMPS_Processor *proc) {
 
 /* Push the fiber back into the free cache */
 static void releaseFiber(GMPS_Processor *proc, GMPS_Fiber *fbr) {
+    uint32_t key, keyCount;
+    GMPS_FlsDestructor destr;
+    void *value;
+
     /* Unregister from epoll if socket is registered */
     if (fbr->waitSocket != INVALID_SOCKET_FD) {
         (void) epoll_ctl(scheduler.epollFd, EPOLL_CTL_DEL,
                          (int) fbr->waitSocket, NULL);
         fbr->waitSocket = INVALID_SOCKET_FD;
     }
+
+    /* Clean up any fiber-local storage values if destructor is registered */
+    keyCount = atomic_load(&(flsRegistry.keyCount));
+    for (key = 0; key < keyCount; key++) {
+        destr = flsRegistry.destructors[key];
+        value = fbr->flsData[key];
+        if ((destr != NULL) && (value != NULL)) {
+            destr(value);
+        }
+    }
+    (void) memset(fbr->flsData, 0, sizeof(fbr->flsData));
 
     atomic_store(&(fbr->status), SFBR_DEAD);
     fbr->startFn = NULL;
@@ -1222,7 +1245,7 @@ static int netpoll(int32_t delay, GMPS_FiberQueue *q) {
     return rc;
 }
 
-/********** Chanel management functions **********/
+/********** Channel management functions **********/
 
 /* Stack-allocated waiter for a fiber blocked on a channel operation */
 typedef struct GMPS_Waiter {
@@ -1362,6 +1385,10 @@ int GMPS_SchedulerInit(int procCount) {
 
     /* Initialize the auxiliary locks for associated data management */
     (void) WXThread_MutexInit(&(scheduler.freeFiberLock), FALSE);
+
+    /* Initialize the fiber-local storage registry */
+    (void) WXThread_MutexInit(&(flsRegistry.lock), FALSE);
+    atomic_store(&(flsRegistry.keyCount), 0);
 
     /* Create the primary thread instance (attached to this thread) */
     GMPS_Thread *thr = allocThread();
@@ -1624,6 +1651,64 @@ void GMPS_ExitSyscall(void) {
 
     /* When we wake up, we're on g0 - jump into schedule loop */
     schedule();
+}
+
+/********** Fiber-local storage functions **********/
+
+/**
+ * Allocate a fiber-local storage key in the global context, for storing
+ * values within a fiber instance.  Provide a non-NULL destructor for value
+ * cleanup on fiber exit.  Returns GMPS_FLS_INVALID_KEY on failure.
+ */
+GMPS_FlsKey GMPS_FlsKeyCreate(GMPS_FlsDestructor destrFn) {
+    uint32_t key;
+
+    (void) WXThread_MutexLock(&(flsRegistry.lock));
+
+    key = atomic_load(&(flsRegistry.keyCount));
+    if (key >= GMPS_FLS_MAX_KEYS) {
+        (void) WXThread_MutexUnlock(&(flsRegistry.lock));
+        return GMPS_FLS_INVALID_KEY;
+    }
+
+    flsRegistry.destructors[key] = destrFn;
+    atomic_store(&(flsRegistry.keyCount), key + 1);
+
+    (void) WXThread_MutexUnlock(&(flsRegistry.lock));
+
+    return key;
+}
+
+/**
+ * Set a value in the current fiber local storage for the specified key.  Will
+ * overwrite existing value without cleanup.
+ */
+int GMPS_FlsSet(GMPS_FlsKey key, void *value) {
+    GMPS_Thread *thr = _tlsThread;
+    GMPS_Fiber *fbr;
+
+    if (thr == NULL) return FALSE;
+    fbr = thr->currFiber;
+    if (fbr == NULL) return FALSE;
+    if (key >= atomic_load(&(flsRegistry.keyCount))) return FALSE;
+
+    fbr->flsData[key] = value;
+    return TRUE;
+}
+
+/**
+ * Get the value from the current fiber local storage for the specified key.
+ */
+void *GMPS_FlsGet(GMPS_FlsKey key) {
+    GMPS_Thread *thr = _tlsThread;
+    GMPS_Fiber *fbr;
+
+    if (thr == NULL) return NULL;
+    fbr = thr->currFiber;
+    if (fbr == NULL) return NULL;
+    if (key >= atomic_load(&(flsRegistry.keyCount))) return NULL;
+
+    return fbr->flsData[key];
 }
 
 /**

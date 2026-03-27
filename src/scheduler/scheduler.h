@@ -92,4 +92,32 @@ void GMPS_EnterSyscall(void);
  */
 void GMPS_ExitSyscall(void);
 
+/* Fiber-local storage key type and invalid marker */
+typedef uint32_t GMPS_FlsKey;
+#define GMPS_FLS_INVALID_KEY ((GMPS_FlsKey) -1)
+
+/* Destructor callback prototype for cleaning up entries on fiber exit */
+typedef void (*GMPS_FlsDestructor)(void *value);
+
+/**
+ * Allocate a fiber-local storage key in the global context, for storing
+ * values within a fiber instance.  Provide a non-NULL destructor for value
+ * cleanup on fiber exit.  Returns GMPS_FLS_INVALID_KEY on failure.
+ */
+GMPS_FlsKey GMPS_FlsKeyCreate(GMPS_FlsDestructor destrFn);
+
+/**
+ * Set a value in the current fiber local storage for the specified key.  Will
+ * overwrite existing value without cleanup.
+ */
+int GMPS_FlsSet(GMPS_FlsKey key, void *value);
+
+/**
+ * Get the value from the current fiber local storage for the specified key.
+ *
+ * @param key The FLS key (from GMPS_FlsKeyCreate).
+ * @return The stored value, or NULL if key is invalid or not set.
+ */
+void *GMPS_FlsGet(GMPS_FlsKey key);
+
 #endif
