@@ -1,12 +1,12 @@
 /*
  * Structures and methods for parsing, representing and generating JSON data.
  *
- * Copyright (C) 2015-2024 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2015-2026 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
 #include <ctype.h>
-#include "jsonint.h"
+#include "json.h"
 #include "encoding.h"
 #include "mem.h"
 

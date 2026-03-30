@@ -1,12 +1,11 @@
 /*
  * Test interface for the JSON data processor.
  *
- * Copyright (C) 2015-2024 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2015-2026 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
 #include "json.h"
-#include "jsonint.h"
 #include "mem.h"
 
 #define TEST_TOKEN(exp, msg) \
