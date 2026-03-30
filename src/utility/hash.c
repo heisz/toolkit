@@ -614,14 +614,6 @@ void WXDict_Empty(WXDictionary *dict) {
     WXHash_Empty(&(dict->base));
 }
 
-/* At some point I should think of making this method more standard */
-static char *wxstrdup(const char *s) {
-    size_t l = strlen(s);
-    char *st = WXMalloc(l + 1);
-    (void) memcpy(st, s, l + 1);
-    return st;
-}
-
 /**
  * Store a key/value pair into a dictionary.  Tables will expand as necessary,
  * value will replace an already existing/matching key entry.  Key/value are
@@ -640,8 +632,8 @@ int WXDict_PutEntry(WXDictionary *dict, const char *key, const char *val) {
     void *oldKey = NULL, *oldVal = NULL;
     int rc;
 
-    if ((key = wxstrdup(key)) == NULL) return FALSE;
-    if ((val = wxstrdup(val)) == NULL) {
+    if ((key = WXStrDup(key)) == NULL) return FALSE;
+    if ((val = WXStrDup(val)) == NULL) {
         WXFree((void *) key);
         return FALSE;
     }
@@ -679,8 +671,8 @@ int WXDict_InsertEntry(WXDictionary *dict, const char *key, const char *val) {
     void *oldKey = NULL, *oldVal = NULL;
     int rc;
 
-    if ((key = wxstrdup(key)) == NULL) return 0;
-    if ((val = wxstrdup(val)) == NULL) {
+    if ((key = WXStrDup(key)) == NULL) return 0;
+    if ((val = WXStrDup(val)) == NULL) {
         WXFree((void *) key);
         return 0;
     }

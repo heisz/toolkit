@@ -56,4 +56,14 @@ void *_WXRealloc(void *original, size_t size, int line, char *file);
 #define WXFree(original) _WXFree(original, __LINE__, __FILE__)
 void _WXFree(void *original, int line, char *file);
 
+/**
+ * Repeated time and time again, strdup replacement in the above forms.  Note
+ * however that it works in unsigned for existing compatibility.
+ *
+ * @parm src Source string to copy (null terminated).
+ * @return Duplicate of string or NULL if memalloc fails or src is NULL.
+ */
+#define WXStrDup(src) _WXStrDup((uint8_t *) src, __LINE__, __FILE__)
+uint8_t *_WXStrDup(uint8_t *src, int line, char *file);
+
 #endif

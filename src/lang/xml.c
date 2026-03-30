@@ -13,16 +13,6 @@
 
 /* These appear up front so the parser can use them... */
 
-/* Wrap with duplication and NULL handling */
-static char *_xmlStrDup(const char *val) {
-    char *retval;
-
-    if (val == NULL) return NULL;
-    retval = (char *) WXMalloc(strlen(val) + 1);
-    if (retval != NULL) (void) strcpy(retval, val);
-    return retval;
-}
-
 /**
  * Utility method for allocating XML element instances, for manually creating
  * a DOM tree.
@@ -50,8 +40,8 @@ WXMLElement *WXML_AllocateElement(WXMLElement *parent, const char *name,
         elmnt->name = (char *) name;
         elmnt->content = (char *) content;
     } else {
-        elmnt->name = (name != NULL) ? _xmlStrDup(name) : NULL;
-        if (content != NULL) elmnt->content = _xmlStrDup(content);
+        elmnt->name = (name != NULL) ? WXStrDup(name) : NULL;
+        if (content != NULL) elmnt->content = WXStrDup(content);
         if (((name != NULL) && (elmnt->name == NULL)) ||
                 ((content != NULL) && (elmnt->content == NULL))) {
             if (elmnt->content != NULL) WXFree(elmnt->content);
@@ -118,8 +108,8 @@ WXMLNamespace *WXML_AllocateNamespace(WXMLElement *origin, const char *prefix,
         ns->prefix = (char *) prefix;
         ns->href = (char *) href;
     } else {
-        ns->prefix = _xmlStrDup(prefix);
-        ns->href = _xmlStrDup(href);
+        ns->prefix = WXStrDup(prefix);
+        ns->href = WXStrDup(href);
         if ((ns->prefix == NULL) || (ns->href == NULL)) {
             if (ns->href != NULL) WXFree(ns->href);
             if (ns->prefix != NULL) WXFree(ns->prefix);
@@ -162,8 +152,8 @@ WXMLAttribute *WXML_AllocateAttribute(WXMLElement *elmnt, const char *name,
         attr->name = (char *) name;
         attr->value = (char *) val;
     } else {
-        attr->name = _xmlStrDup(name);
-        if (val != NULL) attr->value = _xmlStrDup(val);
+        attr->name = WXStrDup(name);
+        if (val != NULL) attr->value = WXStrDup(val);
         if ((attr->name == NULL) || ((val != NULL) && (attr->value == NULL))) {
             if (attr->value != NULL) WXFree(attr->value);
             if (attr->name != NULL) WXFree(attr->name);

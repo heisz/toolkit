@@ -899,10 +899,7 @@ int WXJSON_Bind(WXJSONValue *root, void *data, WXJSONBindDefn *defn,
                 /* Lots of jiggerypokery to manage string (re)allocation */
                 if (val != NULL) {
                     if (*((char **) ptr) != NULL) WXFree(*((char **) ptr));
-                    *((char **) ptr) = WXMalloc(strlen(val->value.sval) + 1);
-                    if (*((char **) ptr) != NULL) {
-                        (void) strcpy(*((char **) ptr), val->value.sval);
-                    }
+                    *((char **) ptr) = WXStrDup(val->value.sval);
                 } else {
                     *((char **) ptr) = NULL;
                 }

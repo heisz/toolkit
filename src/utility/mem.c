@@ -55,3 +55,19 @@ void *_WXRealloc(void *original, size_t size, int line, char *file) {
 void _WXFree(void *original, int line, char *file) {
     free(original);
 }
+
+/**
+ * Repeated time and time again, strdup replacement in the above forms.  Note
+ * however that it works in unsigned for existing compatibility.
+ *
+ * @parm src Source string to copy (null terminated).
+ * @return Duplicate of string or NULL if memalloc fails or src is NULL.
+ */
+uint8_t *_WXStrDup(uint8_t *src, int line, char *file) {
+    if (src == NULL) return NULL;
+    size_t len = strlen(src);
+    uint8_t *rval = _WXMalloc(len + 1, line, file);
+    if (rval == NULL) return NULL;
+    (void) memcpy(rval, src, len + 1);
+    return rval;
+}

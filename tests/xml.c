@@ -745,6 +745,7 @@ int main(int argc, char **argv) {
         (void) fprintf(stderr, "Incorrect canonical result for ADFS SAML\n");
         exit(1);
     }
+    WXML_Destroy(doc);
 
     /* Clean up on aisle 3! */
     WXBuffer_Destroy(&buffer);
