@@ -1,7 +1,7 @@
 /*
  * Test interface for the character encoding toolkit.
  *
- * Copyright (C) 1999-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1999-2026 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -13,6 +13,7 @@
  */
 int main(int argc, char **argv) {
     WXBuffer buffer;
+    char *decoded;
 
     /* At some point, put the MTraq testcase identifiers in here */
     WXBuffer_Init(&buffer, 0);
@@ -70,4 +71,13 @@ int main(int argc, char **argv) {
         (void) fprintf(stderr, "Incorrect URI encoding of special chars\n");
         exit(1);
     }
+
+    decoded = WXURL_UnescapeURI("abc%26%2A%2bdef", -1);
+    if ((decoded == NULL) || (strcmp(decoded, "abc&*+def") != 0)) {
+        (void) fprintf(stderr, "Incorrect URI decoding result\n");
+        exit(1);
+    }
+    WXFree(decoded);
+
+    (void) fprintf(stdout, "All tests passed\n");
 }

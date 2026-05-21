@@ -1,7 +1,7 @@
 /*
  * Methods for handling various data encodings (typically language specific).
  *
- * Copyright (C) 1997-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2026 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -65,5 +65,14 @@ uint8_t *WXML_EscapeContent(WXBuffer *buffer, char *str, int len,
  * @return Pointer to the buffer contents or NULL on memory error.
  */
 uint8_t *WXURL_EscapeURI(WXBuffer *buffer, char *str, int len);
+
+/**
+ * Reverse of above, unescape %HH sequences back to literal values.
+ *
+ * @param str URI to be unescaped.
+ * @param len Length of text to unescape, -1 for string length.
+ * @return Allocated unescaped string (caller must free) or NULL on memfail.
+ */        
+char *WXURL_UnescapeURI(char *str, int len);
 
 #endif

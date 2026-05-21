@@ -1,7 +1,7 @@
 /*
  * Methods for handling various data encodings (typically language specific).
  *
- * Copyright (C) 1997-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2026 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -319,4 +319,48 @@ uint8_t *WXURL_EscapeURI(WXBuffer *buffer, char *str, int len) {
     }
 
     return buffer->buffer;
+}
+
+/* Utility method for hex convert, thought about buffer unpack but validate! */
+static int uriHexNybble(unsigned char ch) {
+    if ((ch >= '0') && (ch <= '9')) return ch - '0';
+    if ((ch >= 'A') && (ch <= 'F')) return ch - 'A' + 10;
+    if ((ch >= 'a') && (ch <= 'f')) return ch - 'a' + 10;
+    return -1;
+}
+
+/**
+ * Reverse of above, unescape %HH sequences back to literal values.
+ *
+ * @param str URI to be unescaped.
+ * @param len Length of text to unescape, -1 for string length.
+ * @return Allocated unescaped string (caller must free) or NULL on memfail.
+ */
+char *WXURL_UnescapeURI(char *str, int len) {
+    char *rval, *out;
+    unsigned char ch;
+    int hi, lo;
+
+    if (len < 0) len = strlen(str);
+    rval = (char *) WXMalloc(len + 1);
+    if (rval == NULL) return NULL;
+    out = rval;
+
+    while (len > 0) {
+        ch = (unsigned char) *(str++);
+        len--;
+
+        if ((ch == '%') && (len >= 2) &&
+                ((hi = uriHexNybble((unsigned char) *str)) >= 0) &&
+                ((lo = uriHexNybble((unsigned char) *(str + 1))) >= 0)) {
+            *(out++) = (char) ((hi << 4) | lo);
+            str += 2;
+            len -= 2;
+        } else {
+            *(out++) = (char) ch;
+        }
+    }
+    *out = '\0';
+
+    return rval;
 }
