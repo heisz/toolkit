@@ -193,7 +193,8 @@ int WXFCGI_Read(WXFCGI_Connection *conn) {
             conn->request.stdinLen = 0;
         } else {
             if (conn->request.stdin == NULL) {
-                conn->request.stdin = (uint8_t *) WXMalloc(conn->recordLength);
+                conn->request.stdin =
+                              (uint8_t *) WXMalloc(conn->recordLength + 1);
                 if (conn->request.stdin == NULL) return WXNRC_MEM_ERROR;
                 (void) memcpy(conn->request.stdin, conn->recordBuffer,
                               conn->recordLength);
@@ -202,13 +203,16 @@ int WXFCGI_Read(WXFCGI_Connection *conn) {
                 conn->request.stdin =
                     (uint8_t *) WXRealloc(conn->request.stdin,
                                           conn->request.stdinLen +
-                                                          conn->recordLength);
+                                                      conn->recordLength + 1);
                 if (conn->request.stdin == NULL) return WXNRC_MEM_ERROR;
                 (void) memcpy(conn->request.stdin,
                               conn->recordBuffer + conn->request.stdinLen,
                               conn->recordLength);
                 conn->request.stdinLen += conn->recordLength;
             }
+
+            /* Null terminate 'extra' byte so consumers can treat as string */
+            conn->request.stdin[conn->request.stdinLen] = '\0';
             conn->request.phase = WXFCGI_PHASE_PARAMS;
         }
     } else if (conn->header.type == WXFCGI_STDIN) {
@@ -221,7 +225,8 @@ int WXFCGI_Read(WXFCGI_Connection *conn) {
             conn->request.phase = WXFCGI_PHASE_REQ_DONE;
         } else {
             if (conn->request.stdin == NULL) {
-                conn->request.stdin = (uint8_t *) WXMalloc(conn->recordLength);
+                conn->request.stdin =
+                              (uint8_t *) WXMalloc(conn->recordLength + 1);
                 if (conn->request.stdin == NULL) return WXNRC_MEM_ERROR;
                 (void) memcpy(conn->request.stdin, conn->recordBuffer,
                               conn->recordLength);
@@ -230,13 +235,16 @@ int WXFCGI_Read(WXFCGI_Connection *conn) {
                 conn->request.stdin =
                     (uint8_t *) WXRealloc(conn->request.stdin,
                                           conn->request.stdinLen +
-                                                          conn->recordLength);
+                                                      conn->recordLength + 1);
                 if (conn->request.stdin == NULL) return WXNRC_MEM_ERROR;
                 (void) memcpy(conn->request.stdin,
                               conn->recordBuffer + conn->request.stdinLen,
                               conn->recordLength);
                 conn->request.stdinLen += conn->recordLength;
             }
+
+            /* Null terminate 'extra' byte so consumers can treat as string */
+            conn->request.stdin[conn->request.stdinLen] = '\0';
             conn->request.phase = WXFCGI_PHASE_STDIN;
         }
     }

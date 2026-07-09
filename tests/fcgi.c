@@ -155,7 +155,6 @@ int main(int argc, char **argv) {
                 conn = (WXFCGI_Connection *) event->userData.ptr;
                 rc = WXFCGI_Read(conn);
                 if (rc < 0) {
-fprintf(stderr, "WTF %d\n", rc);
                     (void) fprintf(stderr, "Read error for response: %s\n",
                                 WXSocket_GetErrorStr(WXSocket_GetLastErrNo()));
                     (void) WXEvent_UnregisterEvent(evtRegistry,
