@@ -76,7 +76,13 @@ esac
 ####### Part D - Dependent Product/Library Determination #######
 
 # Determine if MySQL is available and provide associated definitions
-AC_CHECK_PROGS(MYSQL_CONFIG, mysql_config)
+AC_ARG_WITH([mysql],
+            AS_HELP_STRING([--without-mysql],
+                           [disable the MySQL database driver]),
+            [], [with_mysql=yes])
+if test "x${with_mysql}" != "xno"; then
+    AC_CHECK_PROGS(MYSQL_CONFIG, mysql_config)
+fi
 if test -n "${MYSQL_CONFIG}"; then
     AC_DEFINE([HAVE_MYSQL_DB], [1],
               [Define to 1 if you have build support for MySQL client])
@@ -91,8 +97,14 @@ if test -n "${MYSQL_CONFIG}"; then
 fi
 
 # Determine if PostgreSQL is available and provide associated definitions
-AC_CHECK_PROGS(PGSQL_CONFIG, pg_config)
-if test -n "${MYSQL_CONFIG}"; then
+AC_ARG_WITH([pgsql],
+            AS_HELP_STRING([--without-pgsql],
+                           [disable the PostgreSQL database driver]),
+            [], [with_pgsql=yes])
+if test "x${with_pgsql}" != "xno"; then
+    AC_CHECK_PROGS(PGSQL_CONFIG, pg_config)
+fi
+if test -n "${PGSQL_CONFIG}"; then
     AC_DEFINE([HAVE_PGSQL_DB], [1],
               [Define to 1 if you have build support for PostgreSQL client])
     PGSQL_SRCDIR="pgsql"
