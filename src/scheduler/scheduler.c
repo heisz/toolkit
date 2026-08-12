@@ -1429,8 +1429,12 @@ void GMPS_SchedulerStart() {
  */
 struct GMPS_Fiber *GMPS_Start(GMPS_StartFn startFn, void *arg) {
     GMPS_Thread *thr = _tlsThread;
-    GMPS_Processor *proc = thr->currProcessor;
+    GMPS_Processor *proc;
     GMPS_Fiber *fbr;
+
+    /* Nothing to schedule against from a thread the scheduler never saw */
+    if (thr == NULL) return NULL;
+    proc = thr->currProcessor;
 
     fbr = getFiber(proc);
     if (fbr == NULL) {
@@ -1460,13 +1464,27 @@ struct GMPS_Fiber *GMPS_Start(GMPS_StartFn startFn, void *arg) {
 }
 
 /**
+ * Determine whether the caller is currently running on a fiber.
+ */
+int GMPS_OnFiber() {
+    GMPS_Thread *thr = _tlsThread;
+
+    if (thr == NULL) return FALSE;
+    if ((thr->currFiber == NULL) || (thr->currFiber == thr->g0)) return FALSE;
+
+    return TRUE;
+}
+
+/**
  * Yield the current fiber back to the scheduler.
  */
 void GMPS_Yield() {
     GMPS_Thread *thr = _tlsThread;
-    GMPS_Fiber *fbr = thr->currFiber;
+    GMPS_Fiber *fbr;
 
-    /* Do nothing if we are the scheduling fiber */
+    /* Do nothing for a non-scheduled thread or on the scheduling fiber */
+    if (thr == NULL) return;
+    fbr = thr->currFiber;
     if ((fbr == NULL) || (fbr == thr->g0)) return;
 
     /* Yield with callback to manage status/queue */
@@ -1480,9 +1498,11 @@ void GMPS_Yield() {
  */
 uint32_t GMPS_YieldSocket(WXSocket sock, uint32_t events) {
     GMPS_Thread *thr = _tlsThread;
-    GMPS_Fiber *fbr = thr->currFiber;
+    GMPS_Fiber *fbr;
 
-    /* This shouldn't do anything on scheduler fiber */
+    /* Do nothing for a non-scheduled thread or on the scheduling fiber */
+    if (thr == NULL) return 0;
+    fbr = thr->currFiber;
     if ((fbr == NULL) || (fbr == thr->g0)) return 0;
 
     /* Prepare the wait state, park callback will register */
@@ -1503,9 +1523,12 @@ uint32_t GMPS_YieldSocket(WXSocket sock, uint32_t events) {
  */
 int GMPS_SocketUpdate(WXSocket sock, uint32_t events) {
     GMPS_Thread *thr = _tlsThread;
-    GMPS_Fiber *fbr = thr->currFiber;
     struct epoll_event ev;
+    GMPS_Fiber *fbr;
 
+    /* Do nothing for a non-scheduled thread or on the scheduling fiber */
+    if (thr == NULL) return FALSE;
+    fbr = thr->currFiber;
     if ((fbr == NULL) || (fbr == thr->g0)) return FALSE;
     if (sock == INVALID_SOCKET_FD) sock = fbr->waitSocket;
     if (sock == INVALID_SOCKET_FD) return FALSE;
@@ -1525,8 +1548,11 @@ int GMPS_SocketUpdate(WXSocket sock, uint32_t events) {
  */
 int GMPS_SocketUnregister(WXSocket sock) {
     GMPS_Thread *thr = _tlsThread;
-    GMPS_Fiber *fbr = thr->currFiber;
+    GMPS_Fiber *fbr;
 
+    /* Do nothing for a non-scheduled thread or on the scheduling fiber */
+    if (thr == NULL) return FALSE;
+    fbr = thr->currFiber;
     if ((fbr == NULL) || (fbr == thr->g0)) return FALSE;
     if (sock == INVALID_SOCKET_FD) sock = fbr->waitSocket;
     if (sock == INVALID_SOCKET_FD) return FALSE;
@@ -1578,10 +1604,13 @@ int GMPS_NetPoll(int32_t timeout) {
  */
 void GMPS_EnterSyscall(void) {
     GMPS_Thread *thr = _tlsThread;
-    GMPS_Processor *proc = thr->currProcessor;
-    GMPS_Fiber *fbr = thr->currFiber;
+    GMPS_Processor *proc;
+    GMPS_Fiber *fbr;
 
-    /* Do nothing if we are the scheduling fiber or not on a processor */
+    /* Do nothing if a thread, scheduling fiber or not on processor */
+    if (thr == NULL) return;
+    proc = thr->currProcessor;
+    fbr = thr->currFiber;
     if ((fbr == NULL) || (fbr == thr->g0)) return;
     if (proc == NULL) return;
 
@@ -1603,10 +1632,12 @@ void GMPS_EnterSyscall(void) {
  */
 void GMPS_ExitSyscall(void) {
     GMPS_Thread *thr = _tlsThread;
-    GMPS_Fiber *fbr = thr->currFiber;
     GMPS_Processor *proc;
+    GMPS_Fiber *fbr;
 
-    /* Do nothing if not in syscall state */
+    /* Do nothing if a thread, scheduling fiber or not in syscall state */
+    if (thr == NULL) return;
+    fbr = thr->currFiber;
     if ((fbr == NULL) || (fbr == thr->g0)) return;
     if (atomic_load(&(fbr->status)) != SFBR_SYSCALL) return;
 
@@ -1747,7 +1778,8 @@ GMPS_Channel *GMPS_ChannelCreate(uint32_t capacity) {
 
 /**
  * Send a value on the specified channel.  Blocks the calling fiber until a
- * receiver is available (unbuffered) or a buffer slot is available (buffered).  * Returns TRUE on success, FALSE if the channel is closed.
+ * receiver is available (unbuffered) or a buffer slot is available (buffered).
+ * Returns TRUE on success, FALSE if the channel is closed.
  */
 int GMPS_ChannelSend(GMPS_Channel *ch, void *val) {
     GMPS_Thread *thr = _tlsThread;
@@ -1766,7 +1798,7 @@ int GMPS_ChannelSend(GMPS_Channel *ch, void *val) {
     /* If we have a waiting receiver, pass along the value */
     recv = waiterQueuePop(&(ch->recvQ));
     if (recv != NULL) {
-        *(recv->valRef) = val;
+        if (recv->valRef != NULL) *(recv->valRef) = val;
         recv->success = TRUE;
         GMPS_Fiber *recvFbr = recv->fiber;
         (void) WXThread_MutexUnlock(&(ch->lock));
@@ -1815,13 +1847,13 @@ int GMPS_ChannelRecv(GMPS_Channel *ch, void **valRef) {
     if (send != NULL) {
         if ((ch->buff != NULL) && (ch->count > 0)) {
             /* Buffered data, pull value and push waiting sender into buff */
-            *valRef = ch->buff[ch->recvIdx % ch->capacity];
+            if (valRef != NULL) *valRef = ch->buff[ch->recvIdx % ch->capacity];
             ch->recvIdx++;
             ch->buff[ch->sendIdx % ch->capacity] = *(send->valRef);
             ch->sendIdx++;
         } else {
             /* Unbuffered, take directly from sender */
-            *valRef = *(send->valRef);
+            if (valRef != NULL) *valRef = *(send->valRef);
         }
         send->success = TRUE;
         GMPS_Fiber *sendFbr = send->fiber;
@@ -1832,7 +1864,7 @@ int GMPS_ChannelRecv(GMPS_Channel *ch, void **valRef) {
 
     /* Buffered values await, take the oldest */
     if ((ch->buff != NULL) && (ch->count > 0)) {
-        *valRef = ch->buff[ch->recvIdx % ch->capacity];
+        if (valRef != NULL) *valRef = ch->buff[ch->recvIdx % ch->capacity];
         ch->recvIdx++;
         ch->count--;
         (void) WXThread_MutexUnlock(&(ch->lock));
@@ -1842,7 +1874,7 @@ int GMPS_ChannelRecv(GMPS_Channel *ch, void **valRef) {
     /* If channel closed, there are no more values */
     if (ch->closed) {
         (void) WXThread_MutexUnlock(&(ch->lock));
-        *valRef = NULL;
+        if (valRef != NULL) *valRef = NULL;
         return FALSE;
     }
 
@@ -1873,7 +1905,7 @@ void GMPS_ChannelClose(GMPS_Channel *ch) {
 
     /* Wake all blocked receivers with failure */
     while ((w = waiterQueuePop(&(ch->recvQ))) != NULL) {
-        *(w->valRef) = NULL;
+        if (w->valRef != NULL) *(w->valRef) = NULL;
         w->success = FALSE;
         chanWakeFiber(w->fiber);
     }

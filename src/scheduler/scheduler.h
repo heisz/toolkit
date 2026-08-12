@@ -43,6 +43,13 @@ void GMPS_SchedulerStart();
 struct GMPS_Fiber *GMPS_Start(GMPS_StartFn startFn, void *arg);
 
 /**
+ * Determine whether the caller is currently running on a fiber.
+ *
+ * @return TRUE if an active fiber, FALSE if a thread or scheduling fiber.
+ */
+int GMPS_OnFiber();
+
+/**
  * Yield the current fiber back to the scheduler.
  */
 void GMPS_Yield();
