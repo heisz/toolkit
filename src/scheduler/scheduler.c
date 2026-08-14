@@ -977,10 +977,11 @@ static int socketParkFn(GMPS_Fiber *fbr, void *arg) {
 
     /* Register appropriately based on existing socket */
     if (fbr->waitSocket == INVALID_SOCKET_FD) {
-        /* First registration for this fiber */
+        /* First registration for this fiber - attach before poll registry! */
+        fbr->waitSocket = sock;
         rc = epoll_ctl(scheduler.epollFd, EPOLL_CTL_ADD,
                        (int) sock, &ev);
-        if (rc == 0) fbr->waitSocket = sock;
+        if (rc != 0) fbr->waitSocket = INVALID_SOCKET_FD;
     } else if (fbr->waitSocket == sock) {
         /* Re-arm same socket with (possibly new) events */
         rc = epoll_ctl(scheduler.epollFd, EPOLL_CTL_MOD,
@@ -1566,6 +1567,48 @@ int GMPS_SocketUnregister(WXSocket sock) {
     }
 
     return (rc == 0) ? TRUE : FALSE;
+}
+
+/**
+ * Await network socket conditions based on the WXNRC_READ/WRITE_REQUIRED
+ * flags.  Handles synchronous (non-fiber) and asynchronous (fiber) context.
+ */
+uint32_t GMPS_SocketWait(WXSocket sock, uint32_t flags) {
+    uint32_t events = 0, ready, result = 0;
+    int rc;
+
+    if (sock == INVALID_SOCKET_FD) return 0;
+
+    /* No associated fiber, standard synchronous wait condition */
+    if (!GMPS_OnFiber()) {
+        rc = WXSocket_Wait(sock, (int) flags, NULL);
+        return (rc < 0) ? 0 : ((uint32_t) rc);
+    }
+
+    /* Use the fiber/netpoll asynchronous wait pattern */
+    if ((flags & WXNRC_READ_REQUIRED) != 0) events |= GMPS_EVT_IN;
+    if ((flags & WXNRC_WRITE_REQUIRED) != 0) events |= GMPS_EVT_OUT;
+    ready = GMPS_YieldSocket(sock, events);
+    if (ready == 0) return 0;
+
+    /* Translate back the conditions, errors are marked as readable */
+    if ((ready & (GMPS_EVT_IN | GMPS_EVT_ERR | GMPS_EVT_HUP)) != 0) {
+        result |= WXNRC_READ_REQUIRED;
+    }
+    if ((ready & GMPS_EVT_OUT) != 0) result |= WXNRC_WRITE_REQUIRED;
+    if (result == 0) result = WXNRC_READ_REQUIRED;
+
+    return result;
+}
+
+/**
+ * Detach a socket from the scheduler (if applicable) when registered by the
+ * previous method.
+ */
+void GMPS_SocketRelease(WXSocket sock) {
+    if (sock == INVALID_SOCKET_FD) return;
+    if (!GMPS_OnFiber()) return;
+    (void) GMPS_SocketUnregister(sock);
 }
 
 /**

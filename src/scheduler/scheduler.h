@@ -76,6 +76,30 @@ int GMPS_SocketUpdate(WXSocket sock, uint32_t events);
 int GMPS_SocketUnregister(WXSocket sock);
 
 /**
+ * Two utility methods for supporting external sync/async models based on
+ * network wait states, based on the networking definitions and state models
+ * but integrated with the scheduler systems.
+ */
+
+/**
+ * Await network socket conditions based on the WXNRC_READ/WRITE_REQUIRED
+ * flags.  Handles synchronous (non-fiber) and asynchronous (fiber) context.
+ *
+ * @param sock The descriptor to await on.
+ * @param flags A mixture of WXNRC_READ_REQUIRED and WXNRC_WRITE_REQUIRED.
+ * @return The subset of conditions encountered or zero on error.
+ */
+uint32_t GMPS_SocketWait(WXSocket sock, uint32_t flags);
+
+/**
+ * Detach a socket from the scheduler (if applicable) when registered by the
+ * previous method.
+ *
+ * @param sock The descriptor to detach.
+ */
+void GMPS_SocketRelease(WXSocket sock);
+
+/**
  * Poll for network events and schedule any ready fibers.  Intended to
  * be called from an external (non-scheduler) thread to avoid stalls
  * when all scheduler threads are idle.  The timeout is in milliseconds
