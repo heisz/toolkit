@@ -260,8 +260,9 @@ static void globRunQPut(GMPS_Fiber *fbr) {
     (void) WXThread_MutexUnlock(&(scheduler.lock));
 }
 
-/* Only four forward declarations, not bad */
+/* Give up counting, lots of forward declarations to keep things tidy */
 static void runQPut(GMPS_Processor *proc, GMPS_Fiber *fbr, int next);
+static int runQPutIfRoom(GMPS_Processor *proc, GMPS_Fiber *fbr);
 static void startThread(GMPS_Processor *proc, int spinning);
 static void parkThread(GMPS_Thread *thr);
 static int netpoll(int32_t delay, GMPS_FiberQueue *q);
@@ -282,11 +283,14 @@ GMPS_Fiber *globRunQGet(GMPS_Processor *proc, int32_t max) {
     fbr = fiberQueuePop(&(scheduler.runQ));
     cnt--;
 
-    /* Push remaining (up to max/count) on local queue */
+    /* Push without overflow (already have lock), return to global if full */
     for (; cnt > 0; cnt--) {
         tfbr = fiberQueuePop(&(scheduler.runQ));
         if (tfbr == NULL) break;
-        runQPut(proc, tfbr, FALSE);
+        if (!runQPutIfRoom(proc, tfbr)) {
+            fiberQueuePush(&(scheduler.runQ), tfbr);
+            break;
+        }
     }
 
     return fbr;
@@ -588,6 +592,20 @@ static void runQPut(GMPS_Processor *proc, GMPS_Fiber *fbr, int next) {
     }
 }
 
+/* Non-spill version of above (have lock), return FALSE if local queue full */
+static int runQPutIfRoom(GMPS_Processor *proc, GMPS_Fiber *fbr) {
+    uint32_t hd = atomic_load_explicit(&(proc->runQHead),
+                                       memory_order_acquire);
+    uint32_t tl = atomic_load(&(proc->runQTail));
+
+    if ((tl - hd) >= LOCAL_RUNQ_SIZE) return FALSE;
+
+    proc->runQ[tl % LOCAL_RUNQ_SIZE] = fbr;
+    atomic_store_explicit(&(proc->runQTail), tl + 1, memory_order_release);
+
+    return TRUE;
+}
+
 static GMPS_Fiber *runQGet(GMPS_Processor *proc, int *fromQueue) {
     /* Grab the priority entry first, if there */
     GMPS_Fiber *next = atomic_load(&(proc->runNext));
@@ -762,6 +780,8 @@ static void handoff(GMPS_Processor *proc) {
     /* If no spinning threads and idle procs, hand off to a spinner */
     if ((atomic_load(&(scheduler.spinningCount)) == 0) &&
             (atomic_load(&(scheduler.idleProcCount)) > 0)) {
+        /* Same as wakeProc, increment before start to keep count correct */
+        (void) atomic_fetch_add(&(scheduler.spinningCount), 1);
         startThread(proc, TRUE);
         return;
     }
@@ -922,7 +942,20 @@ top:
         atomic_store(&(thr->spinning), FALSE);
         atomic_fetch_sub(&(scheduler.spinningCount), 1);
 
-        /* Double-check for work before parking */
+        /* First double-check the global queue before parking to avoid stall */
+        if (!fiberQueueIsEmpty(&(scheduler.runQ))) {
+            (void) WXThread_MutexLock(&(scheduler.lock));
+            proc = idleProcGet();
+            (void) WXThread_MutexUnlock(&(scheduler.lock));
+            if (proc != NULL) {
+                acquireProc(thr, proc);
+                atomic_store(&(thr->spinning), TRUE);
+                atomic_fetch_add(&(scheduler.spinningCount), 1);
+                goto top;
+            }
+        }
+
+        /* Double-check for local work before parking */
         for (idx = 0; idx < scheduler.procCount; idx++) {
             GMPS_Processor *targ = scheduler.processors[idx];
             if ((targ != NULL) && (!runQIsEmpty(targ))) {
@@ -1175,14 +1208,16 @@ static void startThread(GMPS_Processor *proc, int spinning) {
 
 /* Park the thread in the idle list and wait on condition */
 static void parkThread(GMPS_Thread *thr) {
+    /* Mark the thread idle state before adding to list, avoid start conflict */
+    (void) WXThread_MutexLock(&(thr->idleLock));
+    atomic_store(&(thr->idle), TRUE);
+
     (void) WXThread_MutexLock(&(scheduler.lock));
     thr->idleNextThread = scheduler.idleThreadList;
     scheduler.idleThreadList = thr;
     scheduler.idleThreadCount++;
     (void) WXThread_MutexUnlock(&(scheduler.lock));
 
-    (void) WXThread_MutexLock(&(thr->idleLock));
-    atomic_store(&(thr->idle), TRUE);
     while (atomic_load(&(thr->idle))) {
 #ifdef SCHEDULER_DEBUG
         (void) fprintf(stderr, "--> thr-%lu going to sleep (idle)\n",
@@ -1631,11 +1666,8 @@ int GMPS_NetPoll(int32_t timeout) {
     }
     (void) WXThread_MutexUnlock(&(scheduler.lock));
 
-    /* Wake a processor, it will cascade to others as needed */
-    if ((atomic_load(&(scheduler.idleProcCount)) > 0) &&
-            (atomic_load(&(scheduler.spinningCount)) == 0)) {
-        wakeProc();
-    }
+    /* Always wake, low cost if invalid but avoids lost wakeup */
+    wakeProc();
 
     return cnt;
 }
