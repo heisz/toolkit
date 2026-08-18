@@ -39,8 +39,13 @@
  * ensure all data from the edge trigger is consumed.
  */
 
-/* OS thread-local storage element for associated scheduler thread instance */
-__thread GMPS_Thread *_tlsThread = NULL;
+/*
+ * OS thread-local storage element for associated scheduler thread instance.
+ * Note that the init-exec tls model is required to pin lookup to %fs-relative
+ * and prevent corruption across fiber migrations.
+ */
+__thread GMPS_Thread *_tlsThread
+                     __attribute__((tls_model("initial-exec"))) = NULL;
 
 /*
  * Lightweight context switching implementation, similar to ucontext but
@@ -146,7 +151,8 @@ static inline void gmps_ctx_reset(GMPS_Ctx *ctx) {
 /*****************************************/
 
 /* The Marsgalia xor-shift random number generator, separate per thread */
-static __thread uint32_t rstate = 1;
+static __thread uint32_t rstate
+                         __attribute__((tls_model("initial-exec"))) = 1;
 
 static void fastRandInit(uint64_t seed) {
     struct timespec ts;
@@ -266,6 +272,7 @@ static int runQPutIfRoom(GMPS_Processor *proc, GMPS_Fiber *fbr);
 static void startThread(GMPS_Processor *proc, int spinning);
 static void parkThread(GMPS_Thread *thr);
 static int netpoll(int32_t delay, GMPS_FiberQueue *q);
+static void yieldFiber(GMPS_Fiber *fbr, GMPS_ParkFn parkFn, void *parkArg);
 
 /* NOTE: this method *must* be called under scheduler lock */
 GMPS_Fiber *globRunQGet(GMPS_Processor *proc, int32_t max) {
@@ -463,6 +470,7 @@ static void fiberStartFn() {
 
 /********** Processor management functions **********/
 
+/* NOTE: idleProcPut/Get/Remove must be called under scheduler lock! */
 static void idleProcPut(GMPS_Processor *proc) {
     atomic_store(&(proc->status), SPRC_IDLE);
     proc->nextProc = atomic_load(&(scheduler.idleProcList));
@@ -485,6 +493,29 @@ static GMPS_Processor *idleProcGet() {
     }
 
     return NULL;
+}
+
+/* Remove the given processor from the scheduler idle list, TRUE if taken */
+static int idleProcRemove(GMPS_Processor *proc) {
+    GMPS_Processor *prev = NULL, *prc = atomic_load(&(scheduler.idleProcList));
+
+    while (prc != NULL) {
+        if (prc == proc) {
+            if (prev == NULL) {
+                atomic_store(&(scheduler.idleProcList), prc->nextProc);
+            } else {
+                prev->nextProc = prc->nextProc;
+            }
+            prc->nextProc = NULL;
+            (void) atomic_fetch_sub(&(scheduler.idleProcCount), 1);
+            return TRUE;
+        }
+
+        prev = prc;
+        prc = prc->nextProc;
+    }
+
+    return FALSE;
 }
 
 /* This could use _tlsThread (always current) but callers have thread */
@@ -1701,6 +1732,17 @@ void GMPS_EnterSyscall(void) {
     handoff(proc);
 }
 
+/* Park callback for syscall exit, queue fiber on g0 to avoid stack conflict */
+static int syscallParkFn(GMPS_Fiber *fbr, void *arg) {
+    atomic_store(&(fbr->status), SFBR_RUNNABLE);
+    globRunQPut(fbr);
+
+    /* Wake a processor if possible to run the queued fiber */
+    wakeProc();
+
+    return TRUE;
+}
+
 /**
  * Exit syscall state after a blocking system call returns.  Attempts to
  * reacquire a processor to continue running.
@@ -1709,6 +1751,7 @@ void GMPS_ExitSyscall(void) {
     GMPS_Thread *thr = _tlsThread;
     GMPS_Processor *proc;
     GMPS_Fiber *fbr;
+    int canReuse;
 
     /* Do nothing if a thread, scheduling fiber or not in syscall state */
     if (thr == NULL) return;
@@ -1720,11 +1763,13 @@ void GMPS_ExitSyscall(void) {
     proc = thr->syscallProc;
     thr->syscallProc = NULL;
     if (proc != NULL) {
-        GMPS_Thread *expected = NULL;
-        if (atomic_compare_exchange_strong(&(proc->thread), &expected, thr)) {
+        /* CAS could leave on idle list, pull from idle list under lock */
+        (void) WXThread_MutexLock(&(scheduler.lock));
+        canReuse = idleProcRemove(proc);
+        (void) WXThread_MutexUnlock(&(scheduler.lock));
+        if (canReuse) {
             /* Got it back, continue running */
-            thr->currProcessor = proc;
-            atomic_store(&(proc->status), SPRC_RUNNING);
+            acquireProc(thr, proc);
             atomic_store(&(fbr->status), SFBR_RUNNING);
             return;
         }
@@ -1740,23 +1785,8 @@ void GMPS_ExitSyscall(void) {
         return;
     }
 
-    /* No processor available, queue fiber and park thread */
-    atomic_store(&(fbr->status), SFBR_RUNNABLE);
-    thr->currFiber = NULL;
-    fbr->thread = NULL;
-    globRunQPut(fbr);
-
-    /* Wake a processor if possible to run the queued fiber */
-    if ((atomic_load(&(scheduler.idleProcCount)) > 0) &&
-            (atomic_load(&(scheduler.spinningCount)) == 0)) {
-        wakeProc();
-    }
-
-    /* Park this thread until work is available */
-    parkThread(thr);
-
-    /* When we wake up, we're on g0 - jump into schedule loop */
-    schedule();
+    /* No processor, queue fiber and park through yield (non-corrupted stack) */
+    yieldFiber(fbr, syscallParkFn, NULL);
 }
 
 /********** Fiber-local storage functions **********/
