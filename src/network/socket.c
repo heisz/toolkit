@@ -878,7 +878,8 @@ int WXSocket_Wait(WXSocket socketHandle, int condition, int32_t *timeoutRef) {
                         &excSet, NULL);
         } else {
             delay = *timeoutRef - (WXSocket_MilliTime() - startTime);
-            if (delay > 0) {
+            if (delay >= 0) {
+                /* Note zero is a valid non-blocking check, not an expiry */
                 tv.tv_sec = delay / 1000;
                 tv.tv_usec = (delay % 1000) * 1000;
                 rc = select(socketHandle + 1, &readSet, &writeSet,
@@ -903,7 +904,8 @@ int WXSocket_Wait(WXSocket socketHandle, int condition, int32_t *timeoutRef) {
             rc = poll(connPollFds, 1, -1);
         } else {
             delay = *timeoutRef - (WXSocket_MilliTime() - startTime);
-            if (delay > 0) {
+            if (delay >= 0) {
+                /* Note zero is a valid non-blocking poll, not an expiry */
                 rc = poll(connPollFds, 1, delay);
             } else {
                 rc = 0;
