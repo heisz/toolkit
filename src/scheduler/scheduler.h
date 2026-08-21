@@ -55,23 +55,27 @@ int GMPS_OnFiber();
 void GMPS_Yield();
 
 /**
- * Yield/park the current fiber until the specified events occur on the
- * given socket.  Uses epoll in edge-triggered one-shot mode: the socket
- * stays registered between calls but is only armed while parked.  Returns
- * the event mask that triggered the wakeup, or 0 on error.
+ * Yield/park the current fiber until one of the specified events occurs on
+ * the given socket.  Uses poll descriptor to track until explicitly detached
+ * via closure.  Returns event mask of triggered wakeup, EVT_ERR or zero for
+ * any invalid registration conditions (e.g. non-fiber, bad socket, etc.)
+ *
+ * NOTE: callers are responsible to ensure socket association rules are 
+ *       followed.  Namely a) only one fiber of read or write is permitted at
+ *       one time (can be different) and b) a combined read/write registration
+ *       must be the only fiber registered.
  */
 uint32_t GMPS_YieldSocket(WXSocket sock, uint32_t events);
 
 /**
- * Update the events for the specified socket, if socket is invalid use
- * the socket attached to this fiber.  Note: with one-shot mode this
- * re-arms the socket so events may fire for a running fiber (ignored).
+ * Explicitly register a socket with the network poller, for giggles.
  */
-int GMPS_SocketUpdate(WXSocket sock, uint32_t events);
+int GMPS_SocketRegister(WXSocket sock);
 
 /**
- * Unregister the specified socket from the network poller, if socket
- * is invalid use the socket attached to this fiber.
+ * Unregister the specified socket from the network poller.  Any waiters will
+ * receive an error condition.  This MUST be called prior to socket close to
+ * clean up the polldesc relationship.
  */
 int GMPS_SocketUnregister(WXSocket sock);
 
@@ -84,6 +88,7 @@ int GMPS_SocketUnregister(WXSocket sock);
 /**
  * Await network socket conditions based on the WXNRC_READ/WRITE_REQUIRED
  * flags.  Handles synchronous (non-fiber) and asynchronous (fiber) context.
+ * Refer to the YieldSocket method above for notes on fiber/socket rules.
  *
  * @param sock The descriptor to await on.
  * @param flags A mixture of WXNRC_READ_REQUIRED and WXNRC_WRITE_REQUIRED.

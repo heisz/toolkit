@@ -108,6 +108,34 @@ typedef enum {
 typedef struct GMPS_Fiber GMPS_Fiber;
 typedef struct GMPS_Processor GMPS_Processor;
 typedef struct GMPS_Thread GMPS_Thread;
+typedef struct GMPS_PollDesc GMPS_PollDesc;
+
+/* Special markers for transition states - otherwise a real fiber */
+#define GMPS_PD_NIL   ((GMPS_Fiber *) 0)
+#define GMPS_PD_READY ((GMPS_Fiber *) 1)
+#define GMPS_PD_WAIT  ((GMPS_Fiber *) 2)
+
+/* Bit split of the poll event data word, (epoch << bits) | descriptor */
+#define GMPS_PD_FD_BITS 24
+#define GMPS_PD_FD_MASK ((uint64_t) ((1 << GMPS_PD_FD_BITS) - 1))
+
+/*
+ * Management structure for per-descriptor polling - tracks fibers to socket
+ * rather than the other way around (prior implementation).  Holds nofitications
+ * if no active waiter.  Never returned to heap, tracks sequence to ignore...
+ */
+struct GMPS_PollDesc {
+    /* Sequencer to detect stale event notification, zero indicates free */
+    _Atomic(uint64_t) seq;
+
+    /* Waiter slots for read, write and combined fibers (or markers) */
+    _Atomic(GMPS_Fiber *) rf;
+    _Atomic(GMPS_Fiber *) wf;
+    _Atomic(GMPS_Fiber *) cf;
+
+    /* Marker for poll error on descriptor */
+    _Atomic(int) hasEventErr;
+};
 
 /* Structure to contain a fiber of execution (a no-go goroutine) */
 struct GMPS_Fiber {
@@ -124,11 +152,6 @@ struct GMPS_Fiber {
 
     /* Thread running this fiber, NULL when idle/parked */
     GMPS_Thread *thread;
-
-    /* Tracking elements for network I/O wait states */
-    uint32_t waitSocket;
-    uint32_t waitEvents;
-    uint32_t readyEvents;
 
     /* Fiber-local storage slots */
     void *flsData[16];
