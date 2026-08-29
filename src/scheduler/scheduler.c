@@ -1055,18 +1055,21 @@ static GMPS_PollDesc *pdAcquire(WXSocket sock, uint64_t *seqRef) {
         return pd;
     }
 
-    /* Initialize read/inactive state */
+    /* Initialize zero/inactive state */
     atomic_store(&(pd->rf), GMPS_PD_NIL);
     atomic_store(&(pd->wf), GMPS_PD_NIL);
     atomic_store(&(pd->cf), GMPS_PD_NIL);
-    atomic_store(&(pd->hasEventErr), FALSE);
+    atomic_store(&(pd->rfEvents), 0);
+    atomic_store(&(pd->wfEvents), 0);
+    atomic_store(&(pd->cfEvents), 0);
 
     /* Mark the sequence before poll registry, could be immediate events! */
     seq = atomic_fetch_add(&pdSeqGen, 1);
     atomic_store(&(pd->seq), seq);
 
-    /* Register the event for polling, with the matching sequence */
-    ev.events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET;
+    /* Always arm even without r/w bits so error and hangup are still caught */
+    /*Note - now using level-triggered instead of edge (lost transitions) */
+    ev.events = EPOLLONESHOT;
     ev.data.u64 = (seq << GMPS_PD_FD_BITS) | (uint64_t) sock;
     rc = epoll_ctl(scheduler.epollFd, EPOLL_CTL_ADD, (int) sock, &ev);
     if ((rc != 0) && (errno == EEXIST)) {
@@ -1091,22 +1094,73 @@ static GMPS_PollDesc *pdAcquire(WXSocket sock, uint64_t *seqRef) {
     return pd;
 }
 
+/* Arm the epoll based on wait requirements for the polling descriptor */
+static void pdArm(GMPS_PollDesc *pd) {
+    int sock = (int) (pd - pdTable);
+    struct epoll_event ev;
+    uint32_t mask = 0;
+    GMPS_Fiber *fbr;
+    uint64_t seq;
+
+    /* For each type, indicate desire unless pending already recorded */
+    fbr = atomic_load(&(pd->rf));
+    if ((fbr != GMPS_PD_NIL) && (fbr != GMPS_PD_READY)) mask |= EPOLLIN;
+    fbr = atomic_load(&(pd->wf));
+    if ((fbr != GMPS_PD_NIL) && (fbr != GMPS_PD_READY)) mask |= EPOLLOUT;
+    fbr = atomic_load(&(pd->cf));
+    if ((fbr != GMPS_PD_NIL) && (fbr != GMPS_PD_READY)) {
+        mask |= EPOLLIN | EPOLLOUT;
+    }
+
+    /* No active waiters, just leave things as they are */
+    if (mask == 0) return;
+
+    /* Read includes hangup, grab poll control and pd sequence */
+    if ((mask & EPOLLIN) != 0) mask |= EPOLLRDHUP;
+    (void) WXThread_MutexLock(&pdLock);
+    seq = atomic_load(&(pd->seq));
+    if (seq == 0) {
+        /* Detached on another fiber/thread, nothing left to arm */
+        (void) WXThread_MutexUnlock(&pdLock);
+        return;
+    }
+
+    /* Level-triggered one shot, kernel notifies if already present/missed */
+    ev.events = mask | EPOLLONESHOT;
+    ev.data.u64 = (seq << GMPS_PD_FD_BITS) | (uint64_t) sock;
+    (void) epoll_ctl(scheduler.epollFd, EPOLL_CTL_MOD, sock, &ev);
+    (void) WXThread_MutexUnlock(&pdLock);
+}
+
 /* Shared method to unblock a target polldesc fiber based on I/O state */
 static int pdUnblock(GMPS_FiberQueue *q, _Atomic(GMPS_Fiber *) *pf,
-                     GMPS_Fiber *state) {
+                     _Atomic(uint32_t) *pevents, uint32_t events) {
     GMPS_FiberStatus wait;
     GMPS_Fiber *fbr;
 
     /* Handle concurrent actions through atomic swap, ignore non-ops */
     while (TRUE) {
         fbr = atomic_load(pf);
-        if (fbr == GMPS_PD_READY) return 0;
-        if ((fbr == GMPS_PD_NIL) && (state == GMPS_PD_NIL)) return 0;
-        if (atomic_compare_exchange_strong(pf, &fbr, state)) break;
+
+        /* No waiter or already notified, nothing to do */
+        if ((fbr == GMPS_PD_NIL) || (fbr == GMPS_PD_READY)) return 0;
+
+        /* Event in progress, attempt mark so park callback returns to queue */
+        if (fbr == GMPS_PD_WAIT) {
+            if (atomic_compare_exchange_strong(pf, &fbr, GMPS_PD_READY)) {
+                /* Merge the new events with existing in the tracking value */
+                if (events != 0) atomic_fetch_or(pevents, events);
+                return 0;
+            }
+            continue;
+        }
+
+        /* Fiber is actively waiting, unmark and wake below */
+        if (atomic_compare_exchange_strong(pf, &fbr, GMPS_PD_NIL)) break;
     }
 
-    /* Nothing was parked, new state is in place with no further action */
-    if ((fbr == GMPS_PD_NIL) || (fbr == GMPS_PD_WAIT)) return 0;
+    /* Merge the new events with existing in the tracking value */
+    if (events != 0) atomic_fetch_or(pevents, events);
 
     /* Awaken the parked fiber, if not already running (concurrent events) */
     wait = SFBR_WAITING;
@@ -1126,12 +1180,13 @@ static int pdUnblock(GMPS_FiberQueue *q, _Atomic(GMPS_Fiber *) *pf,
 static int pdReady(GMPS_FiberQueue *q, GMPS_PollDesc *pd, uint32_t events) {
     int cnt = 0;
 
+    /* Unblock with read/write only, merging into target events tracker */
+    events &= (GMPS_EVT_IN | GMPS_EVT_OUT);
     if ((events & GMPS_EVT_IN) != 0)
-        cnt += pdUnblock(q, &(pd->rf), GMPS_PD_READY);
+        cnt += pdUnblock(q, &(pd->rf), &(pd->rfEvents), events);
     if ((events & GMPS_EVT_OUT) != 0)
-        cnt += pdUnblock(q, &(pd->wf), GMPS_PD_READY);
-    /* Either event marks the combined ready */
-    cnt += pdUnblock(q, &(pd->cf), GMPS_PD_READY);
+        cnt += pdUnblock(q, &(pd->wf), &(pd->wfEvents), events);
+    cnt += pdUnblock(q, &(pd->cf), &(pd->cfEvents), events);
 
     return cnt;
 }
@@ -1156,28 +1211,11 @@ static int pdDetach(WXSocket sock) {
     (void) WXThread_MutexUnlock(&pdLock);
 
     /* Wake waiting fibers outside of polldesc lock, may trigger sched lock */
-    (void) pdUnblock(NULL, &(pd->rf), GMPS_PD_NIL);
-    (void) pdUnblock(NULL, &(pd->wf), GMPS_PD_NIL);
-    (void) pdUnblock(NULL, &(pd->cf), GMPS_PD_NIL);
+    (void) pdUnblock(NULL, &(pd->rf), &(pd->rfEvents), 0);
+    (void) pdUnblock(NULL, &(pd->wf), &(pd->wfEvents), 0);
+    (void) pdUnblock(NULL, &(pd->cf), &(pd->cfEvents), 0);
 
     return TRUE;
-}
-
-/* Build event flagset based on ready markers, to drain pending */
-static uint32_t pdDrain(GMPS_PollDesc *pd) {
-    uint32_t result = 0;
-    GMPS_Fiber *fbr;
-
-    fbr = GMPS_PD_READY;
-    if (atomic_compare_exchange_strong(&(pd->rf), &fbr, GMPS_PD_NIL)) {
-        result |= GMPS_EVT_IN;
-    }
-    fbr = GMPS_PD_READY;
-    if (atomic_compare_exchange_strong(&(pd->wf), &fbr, GMPS_PD_NIL)) {
-        result |= GMPS_EVT_OUT;
-    }
-
-    return result;
 }
 
 /* Post socket yield (on g0), exchange wait marker for polldesc fiber ref */
@@ -1198,79 +1236,62 @@ static uint32_t pdWait(GMPS_Fiber *fbr, GMPS_PollDesc *pd, uint64_t seq,
                        uint32_t events) {
     GMPS_Fiber *of, *rslot, *wslot;
     _Atomic(GMPS_Fiber *) *pf;
-    uint32_t res = 0;
+    _Atomic(uint32_t) *pevt;
+    uint32_t res;
     int cmb;
+
+    /* Discard spurious event on a reused descriptor instance (wrong seq) */
+    if (atomic_load(&(pd->seq)) != seq) return 0;
 
     /* Grab the correct polldesc fiber wait entry (track the combined/both) */
     cmb = (((events & GMPS_EVT_IN) != 0) && ((events & GMPS_EVT_OUT) != 0));
-    if (cmb) pf = &(pd->cf);
-    else if ((events & GMPS_EVT_OUT) != 0) pf = &(pd->wf);
-    else pf = &(pd->rf);
-
-    /* Retry until wait is recorded or pending event already waiting */
-    while (TRUE) {
-        /* Discard spurious event on a reused descriptor instance (wrong seq) */
-        if (atomic_load(&(pd->seq)) != seq) return 0;
-
-        /* Capture markers for pending events already recorded */
-        if (cmb) {
-            /* First drain pending read/write instances */
-            res = pdDrain(pd);
-
-            /* Purge the combined marker as well, setting RW if needed */
-            of = GMPS_PD_READY;
-            if (atomic_compare_exchange_strong(pf, &of, GMPS_PD_NIL)) {
-                if (res == 0) res = GMPS_EVT_IN | GMPS_EVT_OUT;
-            }
-            if (res != 0) break;
-
-            /* Advisory failure if combined wait conflicts with other fibers */
-            rslot = atomic_load(&(pd->rf));
-            wslot = atomic_load(&(pd->wf));
-            if (((rslot != GMPS_PD_NIL) && (rslot != GMPS_PD_READY)) ||
-                    ((wslot != GMPS_PD_NIL) && (wslot != GMPS_PD_READY))) {
-                return 0;
-            }
-        } else {
-            of = GMPS_PD_READY;
-            if (atomic_compare_exchange_strong(pf, &of, GMPS_PD_NIL)) {
-                res = events;
-                break;
-            }
-        }
-
-        /* CAS to the transition wait state */
-        of = GMPS_PD_NIL;
-        if (!atomic_compare_exchange_strong(pf, &of, GMPS_PD_WAIT)) {
-            /* Something came in during the wait setup, start over */
-            if (of == GMPS_PD_READY) continue;
-
-            /* Another advisory failure, two fibers waiting on same event */
-            return 0;
-        }
-
-        /* Zzzzzzzzzzzzzzzzzzzz */
-        yieldFiber(fbr, socketParkFn, pf);
-
-        /* Return with no event if invalid (descriptor closed/reused) */
-        if (atomic_load(&(pd->seq)) != seq) return 0;
-
-        /* Attempt to consume the inbound notification (with checks) */
-        of = GMPS_PD_READY;
-        if (atomic_compare_exchange_strong(pf, &of, GMPS_PD_NIL)) {
-            if (cmb) {
-                /* Like above, drain and return both if none (already nilled) */
-                res = pdDrain(pd);
-                if (res == 0) res = GMPS_EVT_IN | GMPS_EVT_OUT;
-            } else {
-                res = events;
-            }
-            break;
-        }
+    if (cmb) {
+        pf = &(pd->cf);
+        pevt = &(pd->cfEvents);
+    } else if ((events & GMPS_EVT_OUT) != 0) {
+        pf = &(pd->wf);
+        pevt = &(pd->wfEvents);
+    } else {
+        pf = &(pd->rf);
+        pevt = &(pd->rfEvents);
     }
 
-    res &= (GMPS_EVT_IN | GMPS_EVT_OUT);
-    if (atomic_load(&(pd->hasEventErr))) res |= GMPS_EVT_ERR;
+    /* Check for existing waiter conflict, combined must be dual exlusive */
+    if (cmb) {
+        rslot = atomic_load(&(pd->rf));
+        wslot = atomic_load(&(pd->wf));
+        if ((rslot != GMPS_PD_NIL) || (wslot != GMPS_PD_NIL)) {
+            return GMPS_EVT_BUSY;
+        }
+    } else if (atomic_load(&(pd->cf)) != GMPS_PD_NIL) {
+        return GMPS_EVT_BUSY;
+    }
+
+    /* Transition to wait with a CAS (still must be mode exlusive) */
+    of = GMPS_PD_NIL;
+    if (!atomic_compare_exchange_strong(pf, &of, GMPS_PD_WAIT)) {
+        return GMPS_EVT_BUSY;
+    }
+
+    /* Rearm polling based on registered wait instances */
+    /* Note that level-arming will immediately mark pending kernel states */
+    pdArm(pd);
+
+    /* Zzzzzzzzzzzzzzzzzzzz */
+    yieldFiber(fbr, socketParkFn, pf);
+
+    /* On contination, could be poll event or crossover (no wait), clear */
+    of = GMPS_PD_READY;
+    (void) atomic_compare_exchange_strong(pf, &of, GMPS_PD_NIL);
+
+    /* Return with no event if invalid (descriptor closed/reused) */
+    if (atomic_load(&(pd->seq)) != seq) return 0;
+
+    /* Return actual events, write wait with error can return read to handle */
+    res = atomic_exchange(pevt, 0) & (GMPS_EVT_IN | GMPS_EVT_OUT);
+
+    /* Unless no result, fallback to requested events */
+    if (res == 0) res = events & (GMPS_EVT_IN | GMPS_EVT_OUT);
 
     return res;
 }
@@ -1490,8 +1511,8 @@ static void yieldFiber(GMPS_Fiber *fbr, GMPS_ParkFn parkFn, void *parkArg) {
 
 /* Poll for network changes using native epoll */
 static int netpoll(int32_t delay, GMPS_FiberQueue *q) {
-    struct epoll_event events[64];
-    uint32_t evts, mode, fd;
+    struct epoll_event pollEvt[64];
+    uint32_t evts, events, fd;
     GMPS_PollDesc *pd;
     int cnt, rc = 0;
     uint64_t data;
@@ -1500,17 +1521,17 @@ static int netpoll(int32_t delay, GMPS_FiberQueue *q) {
     /* Nothing to poll before the scheduler has initialized */
     if (scheduler.epollFd < 0) return 0;
 
-    cnt = epoll_wait(scheduler.epollFd, events, 64, delay);
+    cnt = epoll_wait(scheduler.epollFd, pollEvt, 64, delay);
     if (cnt <= 0) return 0;
 
     fiberQueueInit(q);
     for (idx = 0; idx < cnt; idx++) {
         /* Skip if no desired events notified */
-        evts = events[idx].events;
+        evts = pollEvt[idx].events;
         if (evts == 0) continue;
 
         /* Retrieve the associated polldesc and reject spurious by sequence */
-        data = events[idx].data.u64;
+        data = pollEvt[idx].data.u64;
         fd = (uint32_t) (data & GMPS_PD_FD_MASK);
         if ((pdTable == NULL) || (fd >= pdTableSize)) continue;
         pd = &(pdTable[fd]);
@@ -1519,21 +1540,20 @@ static int netpoll(int32_t delay, GMPS_FiberQueue *q) {
         }
 
         /* Translate to our wake markers */
-        mode = 0;
+        events = 0;
         if ((evts & (EPOLLIN | EPOLLRDHUP | EPOLLHUP | EPOLLERR)) != 0) {
-            mode |= GMPS_EVT_IN;
+            events |= GMPS_EVT_IN;
         }
         if ((evts & (EPOLLOUT | EPOLLHUP | EPOLLERR)) != 0) {
-            mode |= GMPS_EVT_OUT;
+            events |= GMPS_EVT_OUT;
         }
-        if (mode == 0) continue;
+        if (events == 0) continue;
 
-        if ((evts & (EPOLLERR | EPOLLHUP)) != 0) {
-            atomic_store(&(pd->hasEventErr), TRUE);
-        }
+        /* Counts fibers made runnable, an unwatched event contributes none */
+        rc += pdReady(q, pd, events);
 
-        /* Counts fibers made runnable, a latched event contributes none */
-        rc += pdReady(q, pd, mode);
+        /* Rearm the poll based on any remaining waiter instances (one-shot) */
+        pdArm(pd);
     }
 
     return rc;
@@ -1868,12 +1888,12 @@ uint32_t GMPS_SocketWait(WXSocket sock, uint32_t flags) {
     if ((flags & WXNRC_READ_REQUIRED) != 0) events |= GMPS_EVT_IN;
     if ((flags & WXNRC_WRITE_REQUIRED) != 0) events |= GMPS_EVT_OUT;
     ready = GMPS_YieldSocket(sock, events);
-    if (ready == 0) return 0;
+
+    /* Handle fiber conflict as a wait failure (error either way) */
+    if ((ready == 0) || ((ready & GMPS_EVT_BUSY) != 0)) return 0;
 
     /* Translate back the conditions, errors are marked as readable */
-    if ((ready & (GMPS_EVT_IN | GMPS_EVT_ERR | GMPS_EVT_HUP)) != 0) {
-        result |= WXNRC_READ_REQUIRED;
-    }
+    if ((ready & GMPS_EVT_IN) != 0) result |= WXNRC_READ_REQUIRED;
     if ((ready & GMPS_EVT_OUT) != 0) result |= WXNRC_WRITE_REQUIRED;
     if (result == 0) result = WXNRC_READ_REQUIRED;
 

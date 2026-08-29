@@ -112,8 +112,9 @@ typedef struct GMPS_PollDesc GMPS_PollDesc;
 
 /* Special markers for transition states - otherwise a real fiber */
 #define GMPS_PD_NIL   ((GMPS_Fiber *) 0)
-#define GMPS_PD_READY ((GMPS_Fiber *) 1)
-#define GMPS_PD_WAIT  ((GMPS_Fiber *) 2)
+#define GMPS_PD_WAIT  ((GMPS_Fiber *) 1)
+/* Transition marker indicating event has arrived in wait state */
+#define GMPS_PD_READY ((GMPS_Fiber *) 2)
 
 /* Bit split of the poll event data word, (epoch << bits) | descriptor */
 #define GMPS_PD_FD_BITS 24
@@ -133,8 +134,10 @@ struct GMPS_PollDesc {
     _Atomic(GMPS_Fiber *) wf;
     _Atomic(GMPS_Fiber *) cf;
 
-    /* Marker for poll error on descriptor */
-    _Atomic(int) hasEventErr;
+    /* Pending/arrived events for the waiters above, zero'd on consume */
+    _Atomic(uint32_t) rfEvents;
+    _Atomic(uint32_t) wfEvents;
+    _Atomic(uint32_t) cfEvents;
 };
 
 /* Structure to contain a fiber of execution (a no-go goroutine) */

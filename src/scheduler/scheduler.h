@@ -17,8 +17,9 @@ typedef void (*GMPS_StartFn)(void *arg);
 /* Socket event types for wait operations (match Linux epoll values) */
 #define GMPS_EVT_IN  0x001
 #define GMPS_EVT_OUT 0x004
-#define GMPS_EVT_ERR 0x008
-#define GMPS_EVT_HUP 0x010
+
+/* Error return if a wait is requested for a busy wait slot (not aligned) */
+#define GMPS_EVT_BUSY 0x020
 
 /**
  * Initialize the global scheduler instance with the provided processor
@@ -152,7 +153,7 @@ int GMPS_FlsSet(GMPS_FlsKey key, void *value);
  * Get the value from the current fiber local storage for the specified key.
  *
  * @param key The FLS key (from GMPS_FlsKeyCreate).
- * @return The stored value, or NULL if key is invalid or not set.
+ * @return The stored value or NULL if key is invalid or not set.
  */
 void *GMPS_FlsGet(GMPS_FlsKey key);
 
