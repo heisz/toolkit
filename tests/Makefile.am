@@ -8,7 +8,9 @@
 
 # Just a bunch of test programs
 bin_PROGRAMS = array buffer db encoding fcgi hash json network \
-               scheduler thread xml
+               scheduler schedtest thread xml
+
+TESTS = array buffer encoding hash json thread xml schedtest
 
 # Lots of test cases
 array_SOURCES = array.c
@@ -73,6 +75,16 @@ scheduler_LDADD = $(top_builddir)/src/network/event.lo \
                   $(top_builddir)/src/scheduler/libscheduler.la \
                   -ldl -lm
 scheduler_LDFLAGS = -static
+
+schedtest_SOURCES = schedtest.c
+schedtest_LDADD = $(top_builddir)/src/network/event.lo \
+                   $(top_builddir)/src/network/socket.lo \
+                   $(top_builddir)/src/utility/buffer.lo \
+                   $(top_builddir)/src/utility/mem.lo \
+                   $(top_builddir)/src/utility/thread.lo \
+                   $(top_builddir)/src/scheduler/libscheduler.la \
+                   -lpthread -ldl -lm
+schedtest_LDFLAGS = -static
 
 thread_SOURCES = thread.c
 thread_LDADD = $(top_builddir)/src/utility/threadpool.lo \

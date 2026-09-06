@@ -1061,7 +1061,6 @@ static GMPS_PollDesc *pdAcquire(WXSocket sock, uint64_t *seqRef) {
     atomic_store(&(pd->cf), GMPS_PD_NIL);
     atomic_store(&(pd->rfEvents), 0);
     atomic_store(&(pd->wfEvents), 0);
-    atomic_store(&(pd->cfEvents), 0);
 
     /* Mark the sequence before poll registry, could be immediate events! */
     seq = atomic_fetch_add(&pdSeqGen, 1);
@@ -1159,8 +1158,8 @@ static int pdUnblock(GMPS_FiberQueue *q, _Atomic(GMPS_Fiber *) *pf,
         if (atomic_compare_exchange_strong(pf, &fbr, GMPS_PD_NIL)) break;
     }
 
-    /* Merge the new events with existing in the tracking value */
-    if (events != 0) atomic_fetch_or(pevents, events);
+    /* Tricky code never wins, just store return events on the waking fiber */
+    atomic_store(&(fbr->pollEvents), events);
 
     /* Awaken the parked fiber, if not already running (concurrent events) */
     wait = SFBR_WAITING;
@@ -1186,7 +1185,7 @@ static int pdReady(GMPS_FiberQueue *q, GMPS_PollDesc *pd, uint32_t events) {
         cnt += pdUnblock(q, &(pd->rf), &(pd->rfEvents), events);
     if ((events & GMPS_EVT_OUT) != 0)
         cnt += pdUnblock(q, &(pd->wf), &(pd->wfEvents), events);
-    cnt += pdUnblock(q, &(pd->cf), &(pd->cfEvents), events);
+    cnt += pdUnblock(q, &(pd->cf), &(pd->rfEvents), events);
 
     return cnt;
 }
@@ -1213,7 +1212,7 @@ static int pdDetach(WXSocket sock) {
     /* Wake waiting fibers outside of polldesc lock, may trigger sched lock */
     (void) pdUnblock(NULL, &(pd->rf), &(pd->rfEvents), 0);
     (void) pdUnblock(NULL, &(pd->wf), &(pd->wfEvents), 0);
-    (void) pdUnblock(NULL, &(pd->cf), &(pd->cfEvents), 0);
+    (void) pdUnblock(NULL, &(pd->cf), &(pd->rfEvents), 0);
 
     return TRUE;
 }
@@ -1246,8 +1245,9 @@ static uint32_t pdWait(GMPS_Fiber *fbr, GMPS_PollDesc *pd, uint64_t seq,
     /* Grab the correct polldesc fiber wait entry (track the combined/both) */
     cmb = (((events & GMPS_EVT_IN) != 0) && ((events & GMPS_EVT_OUT) != 0));
     if (cmb) {
+        /* Borrows the read word, exclusion below guarantees it is free */
         pf = &(pd->cf);
-        pevt = &(pd->cfEvents);
+        pevt = &(pd->rfEvents);
     } else if ((events & GMPS_EVT_OUT) != 0) {
         pf = &(pd->wf);
         pevt = &(pd->wfEvents);
@@ -1282,13 +1282,15 @@ static uint32_t pdWait(GMPS_Fiber *fbr, GMPS_PollDesc *pd, uint64_t seq,
 
     /* On contination, could be poll event or crossover (no wait), clear */
     of = GMPS_PD_READY;
-    (void) atomic_compare_exchange_strong(pf, &of, GMPS_PD_NIL);
+    if (atomic_compare_exchange_strong(pf, &of, GMPS_PD_NIL)) {
+        res = atomic_exchange(pevt, 0);
+    } else {
+        res = atomic_exchange(&(fbr->pollEvents), 0);
+    }
+    res &= (GMPS_EVT_IN | GMPS_EVT_OUT);
 
     /* Return with no event if invalid (descriptor closed/reused) */
     if (atomic_load(&(pd->seq)) != seq) return 0;
-
-    /* Return actual events, write wait with error can return read to handle */
-    res = atomic_exchange(pevt, 0) & (GMPS_EVT_IN | GMPS_EVT_OUT);
 
     /* Unless no result, fallback to requested events */
     if (res == 0) res = events & (GMPS_EVT_IN | GMPS_EVT_OUT);

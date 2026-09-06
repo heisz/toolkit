@@ -1,5 +1,5 @@
 /**
- * Test/debug wrapper for the scheduling toolkit.
+ * Test/debug/demo wrapper for the scheduling toolkit.
  * 
  * Copyright (C) 2025-2026 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
@@ -54,7 +54,7 @@ static void basicWork(void *arg) {
     int id = (int)(intptr_t)arg;
 
     while(1) {
-        fprintf(stderr, "Tick %d\n", id);
+        (void) fprintf(stderr, "Tick %d\n", id);
         usleep(1000000);
         GMPS_Yield();
     }
@@ -64,14 +64,14 @@ static void syscallWork(void *arg) {
     int id = (int)(intptr_t)arg;
 
     while(1) {
-        fprintf(stderr, "[Syscall %d] About to sleep (blocking)\n", id);
+        (void) fprintf(stderr, "[Syscall %d] About to sleep (blocking)\n", id);
 
         /* Release processor before blocking syscall */
         GMPS_EnterSyscall();
         sleep(2);
         GMPS_ExitSyscall();
 
-        fprintf(stderr, "[Syscall %d] Woke from sleep\n", id);
+        (void) fprintf(stderr, "[Syscall %d] Woke from sleep\n", id);
         GMPS_Yield();
     }
 }
@@ -123,13 +123,12 @@ static void fcgi_accept_loop(void *arg) {
 static void *netpollThread(void *arg) {
     int cnt;
 
-    (void) arg;
-    fprintf(stderr, "[NetPoll] External poll thread started\n");
+    (void) fprintf(stderr, "[NetPoll] External poll thread started\n");
 
     while (1) {
         cnt = GMPS_NetPoll(500);
         if (cnt > 0) {
-            fprintf(stderr, "[NetPoll] Woke %d fiber(s)\n", cnt);
+            (void) fprintf(stderr, "[NetPoll] Woke %d fiber(s)\n", cnt);
         }
     }
 
@@ -219,6 +218,9 @@ int main(int argc, char **argv) {
                 exit(1);
             }
             svc = argv[++idx];
+        } else if (strcmp(argv[idx], "-h") == 0) {
+            (void) fprintf(stderr, "Usage: scheduler [-s svc]\n");
+            exit(0);
         } else {
             (void) fprintf(stderr, "Error: Invalid argument: %s\n", argv[idx]);
             exit(1);
@@ -226,7 +228,7 @@ int main(int argc, char **argv) {
     }
 
     /* Mark the process start in the log */
-    (void) fprintf(stderr, "Scheduler test program starting\n");
+    (void) fprintf(stderr, "Scheduler test program starting on port %s\n", svc);
 
     /* Open the bind socket, must be exclusive access */
     if (WXSocket_OpenTCPServer("0.0.0.0", svc, &svcConnectHandle) != WXNRC_OK) {
@@ -258,12 +260,12 @@ int main(int argc, char **argv) {
     }
     (void) fprintf(stderr, "[FLS] Created keys: %u, %u\n", flsKeyA, flsKeyB);
 
-    (void) GMPS_Start(flsTestFiber, (void*) 10);
-    (void) GMPS_Start(flsTestFiber, (void*) 20);
+    (void) GMPS_Start(flsTestFiber, (void *) 10);
+    (void) GMPS_Start(flsTestFiber, (void *) 20);
 
-    GMPS_Fiber *f1 = GMPS_Start(basicWork, (void*) 1);
-    GMPS_Fiber *f2 = GMPS_Start(basicWork, (void*) 2);
-    GMPS_Fiber *f3 = GMPS_Start(syscallWork, (void*) 3);
+    GMPS_Fiber *f1 = GMPS_Start(basicWork, (void *) 1);
+    GMPS_Fiber *f2 = GMPS_Start(basicWork, (void *) 2);
+    GMPS_Fiber *f3 = GMPS_Start(syscallWork, (void *) 3);
 
     GMPS_Fiber *acc = GMPS_Start(fcgi_accept_loop,
                           (void *)(uintptr_t) svcConnectHandle);

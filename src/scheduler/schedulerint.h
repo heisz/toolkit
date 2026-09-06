@@ -135,9 +135,9 @@ struct GMPS_PollDesc {
     _Atomic(GMPS_Fiber *) cf;
 
     /* Pending/arrived events for the waiters above, zero'd on consume */
+    /* Note that combined shares the read events, mutually exclusive */
     _Atomic(uint32_t) rfEvents;
     _Atomic(uint32_t) wfEvents;
-    _Atomic(uint32_t) cfEvents;
 };
 
 /* Structure to contain a fiber of execution (a no-go goroutine) */
@@ -148,6 +148,9 @@ struct GMPS_Fiber {
     /* Tracking/management details */
     uint64_t id;
     _Atomic(GMPS_FiberStatus) status;
+
+    /* Just store the wait event outcome rather than being fancy with flags */
+    _Atomic(uint32_t) pollEvents;
 
     /* Storage of execution target for start handoff */
     GMPS_StartFn startFn;
