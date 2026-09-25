@@ -1,7 +1,7 @@
 /*
  * PostgreSQL-specific implementations for the db facade layer.
  *
- * Copyright (C) 2003-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 2003-2026 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -17,8 +17,12 @@ typedef struct WXPGSQLConnection {
 
     /* PostgreSQL-specific elements follow */
     PGconn *db;
-    PGresult *lastConnRslt;
     uint32_t pstmtCount;
+    int64_t lastRowsModified;
+    uint64_t lastRowId;
+
+    /* Track dangling queries in flight on the connection, for cleanup/reuse */
+    int needsReset;
 } WXPGSQLConnection;
 
 /* Local copies of non-string bound variable content */
@@ -45,8 +49,9 @@ typedef struct WXPGSQLStatement {
     /* Local storage instance for non-string parameters */
     WXPGSQLLocalParam *localParams;
 
-    /* Last execution result for the prepared statement (exec or query) */
-    PGresult *lastRslt;
+    /* Like connection, results from last exec call (from the result) */
+    int64_t lastRowsModified;
+    uint64_t lastRowId;
 } WXPGSQLStatement;
 
 typedef struct WXPGSQLResultSet {
@@ -59,6 +64,198 @@ typedef struct WXPGSQLResultSet {
     /* Store the column count for optimized error checking */
     uint32_t columnCount, currentRow, rowCount;
 } WXPGSQLResultSet;
+
+/* Bunch of utility methods for error recording */
+static void recordConnError(PGconn *db, char *errorMsg) {
+    char *msg = (db != NULL) ? PQerrorMessage(db) : NULL;
+
+    if (errorMsg == NULL) return;
+    if ((msg != NULL) && (*msg != '\0')) {
+        _dbxfStrNCpy(errorMsg, msg, WXDB_FIXED_ERROR_SIZE);
+    } else {
+        /* Something else went wrong, not determined by libpq */
+        (void) strcpy(errorMsg, "Database connection wait/abort failure");
+    }
+}
+
+static int recordBindError(WXDBStatement *stmt, int paramIdx,
+                           uint32_t paramCount) {
+    (void) snprintf(stmt->lastErrorMsg, WXDB_FIXED_ERROR_SIZE,
+                    "Bind parameter index %d out of range, statement has "
+                    "%u parameter(s)", paramIdx, (unsigned int) paramCount);
+
+    return WXDRC_SYS_ERROR;
+}
+
+static void recordResultError(PGresult *rslt, char *errorMsg) {
+    char *msg = PQresultErrorMessage(rslt);
+
+    if (errorMsg == NULL) return;
+    if ((msg != NULL) && (*msg != '\0')) {
+        _dbxfStrNCpy(errorMsg, msg, WXDB_FIXED_ERROR_SIZE);
+        return;
+    }
+
+    /* Fall back to the generic status */
+    (void) snprintf(errorMsg, WXDB_FIXED_ERROR_SIZE,
+                    "Unexpected result status from database: %s",
+                    PQresStatus(PQresultStatus(rslt)));
+}
+
+/* Similar utility to extract copies of result related data */
+static void captureResultInfo(PGresult *rslt, int64_t *rowsRef,
+                              uint64_t *rowIdRef) {
+    char *cnt = PQcmdTuples(rslt);
+    *rowsRef = (strlen(cnt) == 0) ? -1 : ((int64_t) atoll(cnt));
+    *rowIdRef = (uint64_t) PQoidValue(rslt);
+}
+
+/* PQ poll handling function prototype (for next method) */
+typedef PostgresPollingStatusType (*pgPollFn)(PGconn *);
+
+/* Shared method for managing asynchronous connection-level poll operations */
+static int connectPollHandler(PGconn *db, pgPollFn pollFn) {
+    int sock, prevSock = -1, hadError = FALSE;
+    PostgresPollingStatusType status;
+    uint32_t conditions;
+
+    /* Start in write state (poll handler starts with wait) */
+    status = PGRES_POLLING_WRITING;
+    while (TRUE) {
+        /* Need to translate between the event indicators */
+        if (status == PGRES_POLLING_READING) {
+            conditions = WXNRC_READ_REQUIRED;
+        } else if (status == PGRES_POLLING_WRITING) {
+            conditions = WXNRC_WRITE_REQUIRED;
+        } else {
+            break;
+        }
+
+        /* libpq can alter the socket between calls, need to manage release */
+        sock = PQsocket(db);
+        if ((prevSock >= 0) && (prevSock != sock)) {
+            _dbxfSocketRelease(prevSock);
+        }
+        prevSock = sock;
+
+        /* Perform the wait */
+        if (_dbxfSocketWait(sock, conditions) == 0) {
+            hadError = TRUE;
+            break;
+        }
+
+        /* And let the polling function handle the outcome */
+        status = (*pollFn)(db);
+    }
+
+    /* Ensure detachment of any associated connection socket instances */
+    if (prevSock >= 0) _dbxfSocketRelease(prevSock);
+    sock = PQsocket(db);
+    if ((sock >= 0) && (sock != prevSock)) _dbxfSocketRelease(sock);
+
+    return ((!hadError) && (status == PGRES_POLLING_OK)) ? TRUE : FALSE;
+}
+
+/* Similar function to handle asynchronous polling on query/result execution */
+static PGresult *waitResult(WXPGSQLConnection *pgConn, char *errorMsg) {
+    PGresult *rslt = NULL, *tmp;
+    int rc, hadError = FALSE;
+    ExecStatusType status;
+    uint32_t events;
+
+    /* First we need to ensure the outgoing query has been sent to the server */
+    while (TRUE) {
+        /* Flush outstanding write buffer, zero indicates complete */
+        rc = PQflush(pgConn->db);
+        if (rc == 0) break;
+        if (rc < 0) {
+            hadError = TRUE;
+            break;
+        }
+
+        /* Wait for additional write, also need read for exchanges */
+        events = _dbxfSocketWait(PQsocket(pgConn->db),
+                                 WXNRC_READ_REQUIRED | WXNRC_WRITE_REQUIRED);
+        if (events == 0) {
+            hadError = TRUE;
+            break;
+        }
+        if (((events & WXNRC_READ_REQUIRED) != 0) &&
+                (PQconsumeInput(pgConn->db) != 1)) {
+            hadError = TRUE;
+            break;
+        }
+    }
+
+    /* Now process the results/response content */
+    while (!hadError) {
+        /* Wait and process inbound until an end marker is hit (non-busy) */
+        while (PQisBusy(pgConn->db) == 1) {
+            events = _dbxfSocketWait(PQsocket(pgConn->db),
+                                    WXNRC_READ_REQUIRED);
+            if ((events == 0) || (PQconsumeInput(pgConn->db) != 1)) {
+                hadError = TRUE;
+                break;
+            }
+        }
+        if (hadError) break;
+
+        /* Translate result, discarding prior if found (highlander) */
+        tmp = PQgetResult(pgConn->db);
+        if (tmp == NULL) break;
+        if (rslt != NULL) PQclear(rslt);
+        rslt = tmp;
+
+        /* This API does not support copy operations (abort in reset mode) */
+        status = PQresultStatus(rslt);
+        if ((status == PGRES_COPY_IN) || (status == PGRES_COPY_OUT) ||
+                (status == PGRES_COPY_BOTH)) {
+            pgConn->needsReset = TRUE;
+            break;
+        }
+        if (PQstatus(pgConn->db) == CONNECTION_BAD) {
+            pgConn->needsReset = TRUE;
+            break;
+        }
+    }
+
+    /* Ensure detachment of any associated connection socket instances */
+    _dbxfSocketRelease(PQsocket(pgConn->db));
+
+    if (hadError) {
+        /* On any error, there may be incomplete traffic to resolve */
+        pgConn->needsReset = TRUE;
+
+        if (rslt != NULL) {
+            PQclear(rslt);
+            rslt = NULL;
+        }
+        recordConnError(pgConn->db, errorMsg);
+    }
+
+    return rslt;
+}
+
+/* As mentioned above, any interrupted/errored handling needs explicit reset */
+static int pgsqlResetConn(WXPGSQLConnection *pgConn, char *errorMsg) {
+    if (PQresetStart(pgConn->db) != 1) {
+        recordConnError(pgConn->db, errorMsg);
+        return FALSE;
+    }
+    if (!connectPollHandler(pgConn->db, PQresetPoll)) {
+        recordConnError(pgConn->db, errorMsg);
+        return FALSE;
+    }
+    if (PQsetnonblocking(pgConn->db, 1) != 0) {
+        recordConnError(pgConn->db, errorMsg);
+        return FALSE;
+    }
+
+    /* NOTE: at this point all data (including prepares) are destroyed */
+
+    pgConn->needsReset = FALSE;
+    return TRUE;
+}
 
 /* Common method for result set creation from statement execution */
 static WXDBResultSet *createResultSet(WXDBConnection *conn,
@@ -122,11 +319,53 @@ static int appendParameter(WXBuffer *buffer, char *param, char *val) {
 
 /***** Connection management operations *****/
 
+/* Create the PgSQL connection string from the connection pool options */
+static int buildConnectDSN(WXDBConnectionPool *pool, WXBuffer *params) {
+    WXHashTable *options = &(pool->options);
+    char *opt;
+
+    opt = (char *) WXHash_GetEntry(options, "unix_socket",
+                                   WXHash_StrHashFn, WXHash_StrEqualsFn);
+    if (opt != NULL) {
+        if (!appendParameter(params, "host", opt)) return FALSE;
+    } else {
+        opt = (char *) WXHash_GetEntry(options, "host",
+                                       WXHash_StrHashFn, WXHash_StrEqualsFn);
+        if (opt != NULL) {
+            if (!appendParameter(params, "host", opt)) return FALSE;
+        }
+
+        opt = (char *) WXHash_GetEntry(options, "port",
+                                        WXHash_StrHashFn, WXHash_StrEqualsFn);
+        if (opt != NULL) {
+            if (!appendParameter(params, "port", opt)) return FALSE;
+        }
+    }
+
+    opt = (char *) WXHash_GetEntry(options, "dbname",
+                                   WXHash_StrHashFn, WXHash_StrEqualsFn);
+    if (opt != NULL) {
+        if (!appendParameter(params, "dbname", opt)) return FALSE;
+    }
+
+    opt = (char *) WXHash_GetEntry(options, "user",
+                                   WXHash_StrHashFn, WXHash_StrEqualsFn);
+    if (opt != NULL) {
+        if (!appendParameter(params, "user", opt)) return FALSE;
+    }
+    opt = (char *) WXHash_GetEntry(options, "password",
+                                   WXHash_StrHashFn, WXHash_StrEqualsFn);
+    if (opt != NULL) {
+        if (!appendParameter(params, "password", opt)) return FALSE;
+    }
+
+    return TRUE;
+}
+
 static int WXDBPGSQLConnection_Create(WXDBConnectionPool *pool,
                                       WXDBConnection **connRef) {
-    WXHashTable *options = &(pool->options);
-    char *opt, paramBuff[2048];
     WXPGSQLConnection *conn;
+    char paramBuff[2048];
     WXBuffer params;
 
     /* Allocate the extended object instance */
@@ -135,55 +374,52 @@ static int WXDBPGSQLConnection_Create(WXDBConnectionPool *pool,
         _dbxfMemFail(pool->lastErrorMsg);
         return WXDRC_MEM_ERROR;
     }
+    conn->db = NULL;
+    conn->pstmtCount = 0;
+    conn->needsReset = FALSE;
+    conn->lastRowsModified = -1;
+    conn->lastRowId = 0;
 
-    /* Build up the connection parameter string */
+    /* Build up the connection string */
     WXBuffer_InitLocal(&params, paramBuff, sizeof(paramBuff));
-    opt = (char *) WXHash_GetEntry(options, "unix_socket",
-                                   WXHash_StrHashFn, WXHash_StrEqualsFn);
-    if (opt != NULL) {
-        if (!appendParameter(&params, "host", opt)) return WXDRC_MEM_ERROR;
-    } else {
-        opt = (char *) WXHash_GetEntry(options, "host",
-                                       WXHash_StrHashFn, WXHash_StrEqualsFn);
-        if (opt != NULL) {
-            if (!appendParameter(&params, "host", opt)) return WXDRC_MEM_ERROR;
-        }
-
-        opt = (char *) WXHash_GetEntry(options, "port",
-                                        WXHash_StrHashFn, WXHash_StrEqualsFn);
-        if (opt != NULL) {
-            if (!appendParameter(&params, "port", opt)) return WXDRC_MEM_ERROR;
-        }
-    }
-
-    opt = (char *) WXHash_GetEntry(options, "dbname",
-                                   WXHash_StrHashFn, WXHash_StrEqualsFn);
-    if (opt != NULL) {
-        if (!appendParameter(&params, "dbname", opt)) return WXDRC_MEM_ERROR;
-    }
-
-    opt = (char *) WXHash_GetEntry(options, "user",
-                                   WXHash_StrHashFn, WXHash_StrEqualsFn);
-    if (opt != NULL) {
-        if (!appendParameter(&params, "user", opt)) return WXDRC_MEM_ERROR;
-    }
-    opt = (char *) WXHash_GetEntry(options, "password",
-                                   WXHash_StrHashFn, WXHash_StrEqualsFn);
-    if (opt != NULL) {
-        if (!appendParameter(&params, "password", opt)) return WXDRC_MEM_ERROR;
+    *paramBuff = '\0';
+    if (!buildConnectDSN(pool, &params)) {
+        _dbxfMemFail(pool->lastErrorMsg);
+        WXBuffer_Destroy(&params);
+        WXFree(conn);
+        return WXDRC_MEM_ERROR;
     }
 
     /* Reach out and touch someone... */
-    conn->db = PQconnectdb((char *) params.buffer);
-    conn->lastConnRslt = NULL;
+    conn->db = PQconnectStart((char *) params.buffer);
     WXBuffer_Destroy(&params);
-    if (PQstatus(conn->db) != CONNECTION_OK) {
-        _dbxfStrNCpy(pool->lastErrorMsg, PQerrorMessage(conn->db),
-                     WXDB_FIXED_ERROR_SIZE);
+    if (conn->db == NULL) {
+        _dbxfMemFail(pool->lastErrorMsg);
+        WXFree(conn);
+        return WXDRC_MEM_ERROR;
+    }
+    if (PQstatus(conn->db) == CONNECTION_BAD) {
+        recordConnError(conn->db, pool->lastErrorMsg);
         PQfinish(conn->db);
+        WXFree(conn);
         return WXDRC_DB_ERROR;
     }
-    conn->pstmtCount = 0;
+
+    /* Handle synch/asynch connection via the handler */
+    if (!connectPollHandler(conn->db, PQconnectPoll)) {
+        recordConnError(conn->db, pool->lastErrorMsg);
+        PQfinish(conn->db);
+        WXFree(conn);
+        return WXDRC_DB_ERROR;
+    }
+
+    /* Force the write to be non-blocking for large statement/parameter sets */
+    if (PQsetnonblocking(conn->db, 1) != 0) {
+        recordConnError(conn->db, pool->lastErrorMsg);
+        PQfinish(conn->db);
+        WXFree(conn);
+        return WXDRC_DB_ERROR;
+    }
 
     /* All done, connection is ready for use */
     *connRef = &(conn->base);
@@ -193,11 +429,8 @@ static int WXDBPGSQLConnection_Create(WXDBConnectionPool *pool,
 static void WXDBPGSQLConnection_Destroy(WXDBConnection *conn) {
     WXPGSQLConnection *pgConn = (WXPGSQLConnection *) conn;
 
-    /* Close is pretty straightforward */
-    if (pgConn->lastConnRslt != NULL) {
-        PQclear(pgConn->lastConnRslt);
-        pgConn->lastConnRslt = NULL;
-    }
+    /* Make sure to drop any pollInfo attached socket */
+    _dbxfSocketRelease(PQsocket(pgConn->db));
     PQfinish(pgConn->db);
 }
 
@@ -209,100 +442,103 @@ static int WXDBPGSQLConnection_Ping(WXDBConnection *conn) {
 
 /***** Connection query operations *****/
 
-static void resetConnResults(WXDBConnection *conn) {
+/* Handle result data reset as well as connection flush/reset */
+static int resetConnResults(WXDBConnection *conn) {
     WXPGSQLConnection *pgConn = (WXPGSQLConnection *) conn;
 
-    if (pgConn->lastConnRslt != NULL) {
-        PQclear(pgConn->lastConnRslt);
-        pgConn->lastConnRslt = NULL;
-    }
+    pgConn->lastRowsModified = -1;
+    pgConn->lastRowId = 0;
     *(conn->lastErrorMsg) = '\0';
+
+    /* Clean up from any earlier connection failures */
+    if (pgConn->needsReset) {
+        if (!pgsqlResetConn(pgConn, conn->lastErrorMsg)) {
+            return WXDRC_DB_ERROR;
+        }
+    }
+
+    return WXDRC_OK;
+}
+
+/* Common method for transaction control operations (fixed statements) */
+static int txnCommand(WXDBConnection *conn, const char *cmd) {
+    WXPGSQLConnection *pgConn = (WXPGSQLConnection *) conn;
+    PGresult *rslt;
+    int rc;
+
+    if ((rc = resetConnResults(conn)) != WXDRC_OK) return rc;
+
+    if (PQsendQuery(pgConn->db, cmd) != 1) {
+        _dbxfStrNCpy(conn->lastErrorMsg, PQerrorMessage(pgConn->db),
+                     WXDB_FIXED_ERROR_SIZE);
+        return WXDRC_DB_ERROR;
+    }
+    rslt = waitResult(pgConn, conn->lastErrorMsg);
+    if (rslt == NULL) return WXDRC_DB_ERROR;
+
+    if (PQresultStatus(rslt) == PGRES_COMMAND_OK) {
+        PQclear(rslt);
+        return WXDRC_OK;
+    }
+    recordResultError(rslt, conn->lastErrorMsg);
+    PQclear(rslt);
+    return WXDRC_DB_ERROR;
 }
 
 static int WXDBPGSQLTxn_Begin(WXDBConnection *conn) {
-    PGconn *db = ((WXPGSQLConnection *) conn)->db;
-    PGresult *rslt;
-
-    resetConnResults(conn);
-    rslt = PQexec(db, "BEGIN TRANSACTION");
-    if (PQresultStatus(rslt) == PGRES_COMMAND_OK) {
-        PQclear(rslt);
-        return WXDRC_OK;
-    }
-    _dbxfStrNCpy(conn->lastErrorMsg, PQresultErrorMessage(rslt),
-                 WXDB_FIXED_ERROR_SIZE);
-    PQclear(rslt);
-    return WXDRC_DB_ERROR;
-} 
+    return txnCommand(conn, "BEGIN TRANSACTION");
+}
 
 static int WXDBPGSQLTxn_Savepoint(WXDBConnection *conn, const char *name) {
-    PGconn *db = ((WXPGSQLConnection *) conn)->db;
     char cmd[2048];
-    PGresult *rslt;
 
-    resetConnResults(conn);
-    (void) sprintf(cmd, "SAVEPOINT %s", name);
-    rslt = PQexec(db, cmd);
-    if (PQresultStatus(rslt) == PGRES_COMMAND_OK) {
-        PQclear(rslt);
-        return WXDRC_OK;
-    }
-    _dbxfStrNCpy(conn->lastErrorMsg, PQresultErrorMessage(rslt),
-                 WXDB_FIXED_ERROR_SIZE);
-    PQclear(rslt);
-    return WXDRC_DB_ERROR;
+    (void) snprintf(cmd, sizeof(cmd), "SAVEPOINT %s", name);
+    return txnCommand(conn, cmd);
 }
 
 static int WXDBPGSQLTxn_Rollback(WXDBConnection *conn, const char *name) {
-    PGconn *db = ((WXPGSQLConnection *) conn)->db;
     char cmd[2048];
-    PGresult *rslt;
 
-    resetConnResults(conn);
-    if (name == NULL) {
-        rslt = PQexec(db, "ROLLBACK TRANSACTION");
-    } else {
-        (void) sprintf(cmd, "ROLLBACK TO %s", name);
-        rslt = PQexec(db, cmd);
-    }
-    if (PQresultStatus(rslt) == PGRES_COMMAND_OK) {
-        PQclear(rslt);
-        return WXDRC_OK;
-    }
-    _dbxfStrNCpy(conn->lastErrorMsg, PQresultErrorMessage(rslt),
-                 WXDB_FIXED_ERROR_SIZE);
-    PQclear(rslt);
-    return WXDRC_DB_ERROR;
-}   
+    if (name == NULL) return txnCommand(conn, "ROLLBACK TRANSACTION");
+    (void) snprintf(cmd, sizeof(cmd), "ROLLBACK TO %s", name);
+    return txnCommand(conn, cmd);
+}
 
 static int WXDBPGSQLTxn_Commit(WXDBConnection *conn) {
-    PGconn *db = ((WXPGSQLConnection *) conn)->db;
-    PGresult *rslt;
-
-    resetConnResults(conn);
-    rslt = PQexec(db, "COMMIT TRANSACTION");
-    if (PQresultStatus(rslt) == PGRES_COMMAND_OK) {
-        PQclear(rslt);
-        return WXDRC_OK;
-    }
-    _dbxfStrNCpy(conn->lastErrorMsg, PQresultErrorMessage(rslt),
-                 WXDB_FIXED_ERROR_SIZE);
-    PQclear(rslt);
-    return WXDRC_DB_ERROR;
+    return txnCommand(conn, "COMMIT TRANSACTION");
 }
 
 static int WXDBPGSQLQry_Execute(WXDBConnection *conn, const char *query) {
     WXPGSQLConnection *pgConn = (WXPGSQLConnection *) conn;
+    ExecStatusType status;
     PGresult *rslt;
+    int rc;
 
-    resetConnResults(conn);
-    rslt = PQexec(pgConn->db, query);
-    if (PQresultStatus(rslt) == PGRES_COMMAND_OK) {
-        pgConn->lastConnRslt = rslt;
+    if ((rc = resetConnResults(conn)) != WXDRC_OK) return rc;
+
+    /* Issue the query and await the (non-tuples) result */
+    if (PQsendQuery(pgConn->db, query) != 1) {
+        _dbxfStrNCpy(conn->lastErrorMsg, PQerrorMessage(pgConn->db),
+                     WXDB_FIXED_ERROR_SIZE);
+        return WXDRC_DB_ERROR;
+    }
+    rslt = waitResult(pgConn, conn->lastErrorMsg);
+    if (rslt == NULL) return WXDRC_DB_ERROR;
+
+    if ((status = PQresultStatus(rslt)) == PGRES_COMMAND_OK) {
+        captureResultInfo(rslt, &(pgConn->lastRowsModified),
+                          &(pgConn->lastRowId));
+        PQclear(rslt);
         return WXDRC_OK;
     }
-    _dbxfStrNCpy(conn->lastErrorMsg, PQresultErrorMessage(rslt),
-                 WXDB_FIXED_ERROR_SIZE);
+
+    /* Catch a RS for a command execute or just the error outright */
+    if (status == PGRES_TUPLES_OK) {
+        (void) strcpy(conn->lastErrorMsg,
+                      "Execute called with query returning result set");
+    } else {
+        recordResultError(rslt, conn->lastErrorMsg);
+    }
     PQclear(rslt);
     return WXDRC_DB_ERROR;
 }
@@ -311,48 +547,68 @@ static WXDBResultSet *WXDBPGSQLQry_ExecuteQuery(WXDBConnection *conn,
                                                 const char *query) {
     WXPGSQLConnection *pgConn = (WXPGSQLConnection *) conn;
     ExecStatusType status;
+    WXDBResultSet *res;
     PGresult *rslt;
 
-    resetConnResults(conn);
-    rslt = PQexec(pgConn->db, query);
+    if (resetConnResults(conn) != WXDRC_OK) return NULL;
+
+    /* Issue the query and await the (tuples) result */
+    if (PQsendQuery(pgConn->db, query) != 1) {
+        _dbxfStrNCpy(conn->lastErrorMsg, PQerrorMessage(pgConn->db),
+                     WXDB_FIXED_ERROR_SIZE);
+        return NULL;
+    }
+    rslt = waitResult(pgConn, conn->lastErrorMsg);
+    if (rslt == NULL) return NULL;
+
     if ((status = PQresultStatus(rslt)) == PGRES_TUPLES_OK) {
-        pgConn->lastConnRslt = rslt;
-        return createResultSet(conn, NULL, rslt);
+        captureResultInfo(rslt, &(pgConn->lastRowsModified),
+                          &(pgConn->lastRowId));
+
+        /* Pass the result to the result set instance for return */
+        res = createResultSet(conn, NULL, rslt);
+        if (res == NULL) {
+            _dbxfMemFail(conn->lastErrorMsg);
+            PQclear(rslt);
+        }
+        return res;
     } else if (status == PGRES_COMMAND_OK) {
         (void) strcpy(conn->lastErrorMsg,
                       "ExecuteQuery called with non-result-set query");
     } else {
-        _dbxfStrNCpy(conn->lastErrorMsg, PQresultErrorMessage(rslt),
-                     WXDB_FIXED_ERROR_SIZE);
+        recordResultError(rslt, conn->lastErrorMsg);
     }
     PQclear(rslt);
     return NULL;
 }
 
+/* Easier and more accurate with the stored result details */
 static int64_t WXDBPGSQLQry_RowsModified(WXDBConnection *conn) {
-    PGresult *rslt = ((WXPGSQLConnection *) conn)->lastConnRslt;
-    const char *cnt;
-
-    if (rslt == NULL) return -1;
-    cnt = PQcmdTuples(rslt);
-    return (strlen(cnt) == 0) ? -1 : ((int64_t) atoll(PQcmdTuples(rslt)));
+    return ((WXPGSQLConnection *) conn)->lastRowsModified;
 }
 
 static uint64_t WXDBPGSQLQry_LastRowId(WXDBConnection *conn) {
-    PGresult *rslt = ((WXPGSQLConnection *) conn)->lastConnRslt;
-
-    if (rslt == NULL) return 0;
-    return (uint64_t) PQoidValue(rslt);
+    return ((WXPGSQLConnection *) conn)->lastRowId;
 }
 
 /***** Statement operations */
 
-static void resetStmtResults(WXPGSQLStatement *pstmt) {
-    if (pstmt->lastRslt != NULL) {
-        PQclear(pstmt->lastRslt);
-        pstmt->lastRslt = NULL;
-    }
+/* As per the connection form above, returns a WXDRC_* code */
+static int resetStmtResults(WXPGSQLStatement *pstmt) {
+    WXPGSQLConnection *pgConn = (WXPGSQLConnection *) pstmt->base.parentConn;
+
+    pstmt->lastRowsModified = -1;
+    pstmt->lastRowId = 0;
     *(pstmt->base.lastErrorMsg) = '\0';
+
+    /* Clean up from any earlier connection failures */
+    if (pgConn->needsReset) {
+        if (!pgsqlResetConn(pgConn, pstmt->base.lastErrorMsg)) {
+            return WXDRC_DB_ERROR;
+        }
+    }
+
+    return WXDRC_OK;
 }
 
 static void freeStatement(WXPGSQLStatement *pstmt) {
@@ -383,13 +639,17 @@ static WXDBStatement *WXDBPGSQLStmt_Prepare(WXDBConnection *conn,
     /* Generate a unique name in the connection for this statement */
     (void) sprintf(pstmt->stmtName, "_pg_%u",
                    (unsigned int) (++pgConn->pstmtCount));
+    pstmt->lastRowsModified = -1;
+    pstmt->lastRowId = 0;
 
     /* Convert the '?' delimiter to the $nnn format (estimated) */
     cnt = 0; ptr = (char *) stmt;
     while (*ptr != '\0') if (*(ptr++) == '?') cnt++;
-    str = fstmt = (char *) WXMalloc(ptr - stmt + cnt * 3);
+
+    str = fstmt = (char *) WXMalloc(ptr - stmt + cnt * 3 + 1);
     if (fstmt == NULL) {
-        WXFree(pstmt);
+        _dbxfMemFail(conn->lastErrorMsg);
+        freeStatement(pstmt);
         return NULL;
     }
     qt = '\0';
@@ -428,18 +688,33 @@ static WXDBStatement *WXDBPGSQLStmt_Prepare(WXDBConnection *conn,
     }
 
     /* All set, create the statement */
-    resetConnResults(conn);
-    rslt = PQprepare(pgConn->db, pstmt->stmtName, fstmt, 0, NULL);
-    status = PQresultStatus(rslt);
+    if (resetConnResults(conn) != WXDRC_OK) {
+        WXFree(fstmt);
+        freeStatement(pstmt);
+        return NULL;
+    }
+
+    if (PQsendPrepare(pgConn->db, pstmt->stmtName, fstmt, 0, NULL) != 1) {
+        _dbxfStrNCpy(conn->lastErrorMsg, PQerrorMessage(pgConn->db),
+                     WXDB_FIXED_ERROR_SIZE);
+        WXFree(fstmt);
+        freeStatement(pstmt);
+        return NULL;
+    }
+    rslt = waitResult(pgConn, conn->lastErrorMsg);
     WXFree(fstmt);
+    if (rslt == NULL) {
+        freeStatement(pstmt);
+        return NULL;
+    }
+    status = PQresultStatus(rslt);
 
     if ((status == PGRES_EMPTY_QUERY) || (status == PGRES_COMMAND_OK) ||
             (status == PGRES_TUPLES_OK)) {
         PQclear(rslt);
         return (WXDBStatement *) pstmt;
     }
-    _dbxfStrNCpy(conn->lastErrorMsg, PQresultErrorMessage(rslt),
-                 WXDB_FIXED_ERROR_SIZE);
+    recordResultError(rslt, conn->lastErrorMsg);
     PQclear(rslt);
     freeStatement(pstmt);
     return NULL;
@@ -448,11 +723,12 @@ static WXDBStatement *WXDBPGSQLStmt_Prepare(WXDBConnection *conn,
 static int WXDBPGSQLStmt_BindInt(WXDBStatement *stmt, int paramIdx,
                                  int val) {
     WXPGSQLStatement *pgStmt = (WXPGSQLStatement *) stmt;
-    char *str = pgStmt->localParams[paramIdx].content;
+    char *str;
 
     if ((paramIdx < 0) || (paramIdx >= (int) pgStmt->paramCount)) {
-        return WXDRC_SYS_ERROR;
+        return recordBindError(stmt, paramIdx, pgStmt->paramCount);
     }
+    str = pgStmt->localParams[paramIdx].content;
 
     pgStmt->paramValues[paramIdx] = str;
     (void) sprintf(str, "%d", val);
@@ -464,11 +740,12 @@ static int WXDBPGSQLStmt_BindInt(WXDBStatement *stmt, int paramIdx,
 static int WXDBPGSQLStmt_BindLong(WXDBStatement *stmt, int paramIdx,
                                   long long val) {
     WXPGSQLStatement *pgStmt = (WXPGSQLStatement *) stmt;
-    char *str = pgStmt->localParams[paramIdx].content;
+    char *str;
 
     if ((paramIdx < 0) || (paramIdx >= (int) pgStmt->paramCount)) {
-        return WXDRC_SYS_ERROR;
+        return recordBindError(stmt, paramIdx, pgStmt->paramCount);
     }
+    str = pgStmt->localParams[paramIdx].content;
 
     pgStmt->paramValues[paramIdx] = str;
     (void) sprintf(str, "%lld", val);
@@ -480,14 +757,16 @@ static int WXDBPGSQLStmt_BindLong(WXDBStatement *stmt, int paramIdx,
 static int WXDBPGSQLStmt_BindDouble(WXDBStatement *stmt, int paramIdx,
                                     double val) {
     WXPGSQLStatement *pgStmt = (WXPGSQLStatement *) stmt;
-    char *str = pgStmt->localParams[paramIdx].content;
+    char *str;
 
     if ((paramIdx < 0) || (paramIdx >= (int) pgStmt->paramCount)) {
-        return WXDRC_SYS_ERROR;
+        return recordBindError(stmt, paramIdx, pgStmt->paramCount);
     }
+    str = pgStmt->localParams[paramIdx].content;
 
     pgStmt->paramValues[paramIdx] = str;
-    (void) sprintf(str, "%lf", val);
+    (void) snprintf(str, sizeof(pgStmt->localParams[paramIdx].content),
+                    "%.17g", val);
     pgStmt->paramLengths[paramIdx] = pgStmt->paramFormats[paramIdx] = 0;
 
     return WXDRC_OK;
@@ -498,7 +777,7 @@ static int WXDBPGSQLStmt_BindString(WXDBStatement *stmt, int paramIdx,
     WXPGSQLStatement *pgStmt = (WXPGSQLStatement *) stmt;
 
     if ((paramIdx < 0) || (paramIdx >= (int) pgStmt->paramCount)) {
-        return WXDRC_SYS_ERROR;
+        return recordBindError(stmt, paramIdx, pgStmt->paramCount);
     }
 
     pgStmt->paramValues[paramIdx] = val;
@@ -510,18 +789,38 @@ static int WXDBPGSQLStmt_BindString(WXDBStatement *stmt, int paramIdx,
 static int WXDBPGSQLStmt_Execute(WXDBStatement *stmt) {
     WXPGSQLStatement *pgStmt = (WXPGSQLStatement *) stmt;
     WXPGSQLConnection *pgConn = (WXPGSQLConnection *) pgStmt->base.parentConn;
+    ExecStatusType status;
     PGresult *rslt;
+    int rc;
 
-    resetStmtResults(pgStmt);
-    rslt = PQexecPrepared(pgConn->db, pgStmt->stmtName, pgStmt->paramCount,
-                          (const char **) pgStmt->paramValues,
-                          pgStmt->paramLengths, pgStmt->paramFormats, 0);
-    if (PQresultStatus(rslt) == PGRES_COMMAND_OK) {
-        pgStmt->lastRslt = rslt;
+    if ((rc = resetStmtResults(pgStmt)) != WXDRC_OK) return rc;
+
+    /* Like connection, issue query and await the (non-tuples) result */
+    if (PQsendQueryPrepared(pgConn->db, pgStmt->stmtName, pgStmt->paramCount,
+                            (const char **) pgStmt->paramValues,
+                            pgStmt->paramLengths,
+                            pgStmt->paramFormats, 0) != 1) {
+        _dbxfStrNCpy(stmt->lastErrorMsg, PQerrorMessage(pgConn->db),
+                     WXDB_FIXED_ERROR_SIZE);
+        return WXDRC_DB_ERROR;
+    }
+    rslt = waitResult(pgConn, stmt->lastErrorMsg);
+    if (rslt == NULL) return WXDRC_DB_ERROR;
+
+    if ((status = PQresultStatus(rslt)) == PGRES_COMMAND_OK) {
+        captureResultInfo(rslt, &(pgStmt->lastRowsModified),
+                          &(pgStmt->lastRowId));
+        PQclear(rslt);
         return WXDRC_OK;
     }
-    _dbxfStrNCpy(stmt->lastErrorMsg, PQresultErrorMessage(rslt),
-                 WXDB_FIXED_ERROR_SIZE);
+
+    /* Ditto, catch a RS for a command execute or just the error outright */
+    if (status == PGRES_TUPLES_OK) {
+        (void) strcpy(stmt->lastErrorMsg,
+                      "Execute called with query returning result set");
+    } else {
+        recordResultError(rslt, stmt->lastErrorMsg);
+    }
     PQclear(rslt);
     return WXDRC_DB_ERROR;
 }
@@ -530,21 +829,39 @@ static WXDBResultSet *WXDBPGSQLStmt_ExecuteQuery(WXDBStatement *stmt) {
     WXPGSQLStatement *pgStmt = (WXPGSQLStatement *) stmt;
     WXPGSQLConnection *pgConn = (WXPGSQLConnection *) pgStmt->base.parentConn;
     ExecStatusType status;
+    WXDBResultSet *res;
     PGresult *rslt;
 
-    resetStmtResults(pgStmt);
-    rslt = PQexecPrepared(pgConn->db, pgStmt->stmtName, pgStmt->paramCount,
-                          (const char **) pgStmt->paramValues,
-                          pgStmt->paramLengths, pgStmt->paramFormats, 0);
+    if (resetStmtResults(pgStmt) != WXDRC_OK) return NULL;
+
+    /* Like connection, issue query and await the (tuples) result */
+    if (PQsendQueryPrepared(pgConn->db, pgStmt->stmtName, pgStmt->paramCount,
+                            (const char **) pgStmt->paramValues,
+                            pgStmt->paramLengths,
+                            pgStmt->paramFormats, 0) != 1) {
+        _dbxfStrNCpy(stmt->lastErrorMsg, PQerrorMessage(pgConn->db),
+                     WXDB_FIXED_ERROR_SIZE);
+        return NULL;
+    }
+    rslt = waitResult(pgConn, stmt->lastErrorMsg);
+    if (rslt == NULL) return NULL;
+
     if ((status = PQresultStatus(rslt)) == PGRES_TUPLES_OK) {
-        pgStmt->lastRslt = rslt;
-        return createResultSet(&(pgConn->base), stmt, rslt);
+        captureResultInfo(rslt, &(pgStmt->lastRowsModified),
+                          &(pgStmt->lastRowId));
+
+        /* Pass the result to the result set instance for return */
+        res = createResultSet(&(pgConn->base), stmt, rslt);
+        if (res == NULL) {
+            _dbxfMemFail(stmt->lastErrorMsg);
+            PQclear(rslt);
+        }
+        return res;
     } else if (status == PGRES_COMMAND_OK) {
         (void) strcpy(stmt->lastErrorMsg,
                       "ExecuteQuery called with non-result-set query");
     } else {
-        _dbxfStrNCpy(stmt->lastErrorMsg, PQresultErrorMessage(rslt),
-                     WXDB_FIXED_ERROR_SIZE);
+        recordResultError(rslt, stmt->lastErrorMsg);
     }
     PQclear(rslt);
 
@@ -552,34 +869,28 @@ static WXDBResultSet *WXDBPGSQLStmt_ExecuteQuery(WXDBStatement *stmt) {
 }
 
 static int64_t WXDBPGSQLStmt_RowsModified(WXDBStatement *stmt) {
-    PGresult *rslt = ((WXPGSQLStatement *) stmt)->lastRslt;
-    const char *cnt;
-
-    if (rslt == NULL) return -1;
-    cnt = PQcmdTuples(rslt);
-    return (strlen(cnt) == 0) ? -1 : ((int64_t) atoll(PQcmdTuples(rslt)));
+    return ((WXPGSQLStatement *) stmt)->lastRowsModified;
 }
 
 static uint64_t WXDBPGSQLStmt_LastRowId(WXDBStatement *stmt) {
-    PGresult *rslt = ((WXPGSQLStatement *) stmt)->lastRslt;
-
-    if (rslt == NULL) return 0;
-    return (uint64_t) PQoidValue(rslt);
+    return ((WXPGSQLStatement *) stmt)->lastRowId;
 }
 
 static void WXDBPGSQLStmt_Close(WXDBStatement *stmt) {
     WXPGSQLStatement *pgStmt = (WXPGSQLStatement *) stmt;
+    WXPGSQLConnection *pgConn;
     char query[128];
 
-    /* Clean up execution elements */
-    if (pgStmt->lastRslt != NULL) {
-        PQclear(pgStmt->lastRslt);
-        pgStmt->lastRslt = NULL;
+    /* Execute the deallocation and release the memory elements */
+    pgConn = (WXPGSQLConnection *) pgStmt->base.parentConn;
+    if (!pgConn->needsReset) {
+        (void) snprintf(query, sizeof(query), "DEALLOCATE \"%s\";",
+                        pgStmt->stmtName);
+        if (PQsendQuery(pgConn->db, query) == 1) {
+            PQclear(waitResult(pgConn, NULL));
+        }
     }
 
-    /* Execute the deallocation and release the memory elements */
-    (void) sprintf(query, "DEALLOCATE \"%s\";", pgStmt->stmtName);
-    PQclear(PQexec(((WXPGSQLConnection *) pgStmt->base.parentConn)->db, query));
     freeStatement(pgStmt);
 }
 
@@ -624,15 +935,9 @@ static int WXDBPGSQLRsltSet_NextRow(WXDBResultSet *rs) {
 }
 
 static void WXDBPGSQLRsltSet_Close(WXDBResultSet *rs) {
-    WXPGSQLConnection *conn = (WXPGSQLConnection *) rs->parentConn;
-    WXPGSQLStatement *stmt = (WXPGSQLStatement *) rs->parentStmt;
     WXPGSQLResultSet *rsltSet = (WXPGSQLResultSet *) rs;
 
-    if ((conn->lastConnRslt != rsltSet->rslt) &&
-            ((stmt == NULL) || (stmt->lastRslt != rsltSet->rslt))) {
-        /* Result set is disocciated from original query, clear ourselves */
-        PQclear(rsltSet->rslt);
-    }
+    PQclear(rsltSet->rslt);
     WXFree(rsltSet);
 }
 

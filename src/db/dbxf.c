@@ -1,7 +1,7 @@
 /*
  * Implementation of the core elements of the database facade/abstraction.
  *
- * Copyright (C) 1997-2024 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2026 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -58,6 +58,69 @@ const char *WXDB_GetLastErrorMessage(void *obj) {
     }
 }
 
+/**
+ * Default blocking socket wait handler, matching the prototype.
+ *
+ * @param sock The descriptor to await conditions on.
+ * @param flags A mixture of WXNRC_READ_REQUIRED and WXNRC_WRITE_REQUIRED.
+ * @return The subset of conditions signalled, or zero on error.
+ */
+uint32_t WXDB_DefaultSocketWait(WXSocket sock, uint32_t flags) {
+    int rc;
+
+    if (sock == INVALID_SOCKET_FD) return 0;
+
+    rc = WXSocket_Wait(sock, (int) flags, NULL);
+    if (rc < 0) return 0;
+
+    /* Translate error into read (or requested) condition to avoid spinning */
+    if (rc == WXNRC_OK) {
+        rc = flags & WXNRC_READ_REQUIRED;
+        if (rc == 0) rc = flags;
+    }
+
+    return (uint32_t) rc;
+}
+
+/* Matching release method, which does nothing in blocking case */
+static void defaultSocketRelease(WXSocket sock) {
+}
+
+/* Installed global handlers for sync/async wait processing */
+static WXDB_SocketWaitFn dbSocketWaitFn = WXDB_DefaultSocketWait;
+static WXDB_SocketReleaseFn dbSocketReleaseFn = defaultSocketRelease;
+
+/**
+ * Register handlers to support synchronous and asynchronous operations within
+ * the dbxf library.  The prototypes exactly match the extensions in the
+ * scheduler, so in standard cases the call would be:
+ *
+ *     WXDB_SetSocketHandlers(GMPS_SocketWait, GMPS_SocketRelease);
+ *
+ * @param waitFn Method to process wait requirements, NULL to revert to the
+ *               blocking instance.
+ * @param releaseFn Handler to release a socket used in the wait, NULL for none.
+ */
+void WXDB_SetSocketHandlers(WXDB_SocketWaitFn waitFn,
+                            WXDB_SocketReleaseFn releaseFn) {
+    dbSocketWaitFn = (waitFn != NULL) ? waitFn : WXDB_DefaultSocketWait;
+    dbSocketReleaseFn = (releaseFn != NULL) ? releaseFn
+                                            : defaultSocketRelease;
+}
+
+/*
+ * Internal accessors for the driver implementations.  These translate invalid
+ * sockets to non-events, to avoid misinterpretation by the toolkit libraries.
+ */
+uint32_t _dbxfSocketWait(int sock, uint32_t conditions) {
+    if (sock < 0) return 0;
+    return (*dbSocketWaitFn)((WXSocket) sock, conditions);
+}
+void _dbxfSocketRelease(int sock) {
+    if (sock < 0) return;
+    (*dbSocketReleaseFn)((WXSocket) sock);
+}
+
 /* Common methods for connection pool cleanup */
 static int propFlush(WXHashTable *table, void *key, void *obj, void *userData) {
     WXFree(key); WXFree(obj);
@@ -74,7 +137,7 @@ static void poolFlush(WXDBConnectionPool *pool) {
 /* Various string utilities for use in the core and driver instances */
 static void strtolower(char *ptr) {
     while (*ptr != '\0') {
-        *ptr = tolower(*ptr);
+        *ptr = tolower((uint8_t) *ptr);
         ptr++;
     }
 }
@@ -160,6 +223,19 @@ static int createConnection(WXDBConnectionPool *pool,
 
     if (WXThread_MutexUnlock(&(pool->connLock)) != WXTRC_OK) {
         (void) strcpy(pool->lastErrorMsg, mtxErrorMsg);
+
+        /* Unlink for consistency but lock failure already going bad */
+        if (pool->connections == conn) {
+            pool->connections = NULL;
+        } else {
+            lastConn = pool->connections;
+            while ((lastConn != NULL) && (lastConn->next != conn)) {
+                lastConn = lastConn->next;
+            }
+            if (lastConn != NULL) lastConn->next = NULL;
+        }
+        if (connRef != NULL) *connRef = NULL;
+
         (conn->driver->connDestroy)(conn);
         WXFree(conn);
         return WXDRC_SYS_ERROR;
@@ -193,7 +269,10 @@ int WXDBConnectionPool_Init(WXDBConnectionPool *pool, const char *dsn,
     /* Basic initialization of the static pool content, for cleanup */
     pool->magic = WXDB_MAGIC_POOL;
     pool->lastErrorMsg[0] = '\0';
-    (void) WXHash_InitTable(&(pool->options), 0);
+    if (!WXHash_InitTable(&(pool->options), 0)) {
+        _dbxfMemFail(pool->lastErrorMsg);
+        return WXDRC_MEM_ERROR;
+    }
     pool->connections = NULL;
     if (WXThread_MutexInit(&(pool->connLock), FALSE) != WXTRC_OK) {
         (void) strcpy(pool->lastErrorMsg, mtxErrorMsg);
@@ -348,7 +427,6 @@ void WXDBConnectionPool_Return(WXDBConnection *conn) {
  * the allocated pool structure instance.
  *
  * @param pool Reference to the pool instance to be destroyed (not freed).
- * @return One of the WXDRC_* result codes, depending on outcome.
  */
 void WXDBConnectionPool_Destroy(WXDBConnectionPool *pool) {
     WXDBConnection *conn, *next;
@@ -369,6 +447,17 @@ void WXDBConnectionPool_Destroy(WXDBConnectionPool *pool) {
 
     /* Use the common method for local cleanup */
     poolFlush(pool);
+}
+
+/**
+ * Test whether the underlying database connection is still alive, based
+ * on the capabilities of the underlying driver.
+ *
+ * @param conn Reference to the connection to be tested.
+ * @return TRUE if the connection is valid, FALSE if not.
+ */
+int WXDBConnection_Ping(WXDBConnection *conn) {
+    return (conn->driver->connPing)(conn);
 }
 
 /**
@@ -437,9 +526,17 @@ int WXDBConnection_Execute(WXDBConnection *conn, const char *query) {
  * @return A result set instance to retrieve data from (use Next() to get the
  *         first row, where applicable) or NULL on a query or memory failure.
  */
-WXDBResultSet *WXDBConnection_ExecuteQuery(WXDBConnection *conn, 
+WXDBResultSet *WXDBConnection_ExecuteQuery(WXDBConnection *conn,
                                            const char *query) {
-    return (conn->driver->qryExecuteQuery)(conn, query);
+    WXDBResultSet *rs = (conn->driver->qryExecuteQuery)(conn, query);
+    if (rs == NULL) return rs;
+
+    /* Common point to setup the result set metadata */
+    rs->magic = WXDB_MAGIC_RSLT;
+    rs->driver = conn->driver;
+    *(rs->lastErrorMsg) = '\0';
+
+    return rs;
 }
 
 /**
@@ -569,7 +666,15 @@ int WXDBStatement_Execute(WXDBStatement *stmt) {
  *         first row, where applicable) or NULL on a query or memory failure.
  */
 WXDBResultSet *WXDBStatement_ExecuteQuery(WXDBStatement *stmt) {
-    return (stmt->driver->stmtExecuteQuery)(stmt);
+    WXDBResultSet *rs = (stmt->driver->stmtExecuteQuery)(stmt);
+    if (rs == NULL) return rs;
+
+    /* Common point to setup the result set metadata */
+    rs->magic = WXDB_MAGIC_RSLT;
+    rs->driver = stmt->driver;
+    *(rs->lastErrorMsg) = '\0';
+
+    return rs;
 }
 
 /**
@@ -589,7 +694,7 @@ int64_t WXDBStatement_RowsModified(WXDBStatement *stmt) {
  * Retrieve the row identifier for the record inserted in the last query
  * executed on the prepared statement.
  *
- * @param conn Reference to the statement that executed an insert.
+ * @param stmt Reference to the statement that executed an insert.
  * @return Row identifier of the last row inserted by the statement, which
  *         is very vendor dependent and complicated by multiple row inserts
  *         or stored procedure instances.  Returns zero (where possible) if
@@ -602,7 +707,7 @@ uint64_t WXDBStatement_LastRowId(WXDBStatement *stmt) {
 /**
  * Release the statement instance and any allocated resources associated to it.
  *
- * @param conn Reference to the statement to release.
+ * @param stmt Reference to the statement to release.
  */
 void WXDBStatement_Close(WXDBStatement *stmt) {
     (stmt->driver->stmtClose)(stmt);

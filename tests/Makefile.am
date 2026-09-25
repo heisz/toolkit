@@ -7,7 +7,7 @@
 #
 
 # Just a bunch of test programs
-bin_PROGRAMS = array buffer db encoding fcgi hash json network \
+bin_PROGRAMS = array buffer db dbsched encoding fcgi hash json network \
                scheduler schedtest thread xml
 
 TESTS = array buffer encoding hash json thread xml schedtest
@@ -96,6 +96,7 @@ thread_LDFLAGS = -lpthread -static
 
 db_SOURCES = db.c
 db_LDADD = $(top_builddir)/src/db/dbxf.lo \
+           $(top_builddir)/src/network/socket.lo \
            $(top_builddir)/src/utility/thread.lo \
            $(top_builddir)/src/utility/buffer.lo \
            $(top_builddir)/src/utility/hash.lo \
@@ -104,6 +105,24 @@ db_LDADD = $(top_builddir)/src/db/dbxf.lo \
            @MYSQL_LIB@ @PGSQL_LIB@ \
            -lpthread -ldl -lm
 db_LDFLAGS = -static
+
+# Target the library objects so that driver switch/build recompiles
+EXTRA_db_DEPENDENCIES = @MYSQL_DRV_OBJ@ @PGSQL_DRV_OBJ@
+
+dbsched_SOURCES = dbsched.c
+dbsched_LDADD = $(top_builddir)/src/db/dbxf.lo \
+                $(top_builddir)/src/network/event.lo \
+                $(top_builddir)/src/network/socket.lo \
+                $(top_builddir)/src/utility/thread.lo \
+                $(top_builddir)/src/utility/buffer.lo \
+                $(top_builddir)/src/utility/hash.lo \
+                $(top_builddir)/src/utility/mem.lo \
+                $(top_builddir)/src/scheduler/libscheduler.la \
+                @MYSQL_DRV_OBJ@ @PGSQL_DRV_OBJ@ \
+                @MYSQL_LIB@ @PGSQL_LIB@ \
+                -lpthread -ldl -lm
+dbsched_LDFLAGS = -static
+EXTRA_dbsched_DEPENDENCIES = @MYSQL_DRV_OBJ@ @PGSQL_DRV_OBJ@
 
 xml_SOURCES = xml.c
 xml_LDADD = $(top_builddir)/src/lang/xml.lo \

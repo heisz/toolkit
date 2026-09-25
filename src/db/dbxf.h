@@ -1,7 +1,7 @@
 /*
  * Definitions for the top-level database facade instance.
  *
- * Copyright (C) 1997-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2026 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -12,6 +12,7 @@
 #include "stdconfig.h"
 #include "hash.h"
 #include "thread.h"
+#include "socket.h"
 
 /* Standardized error codes for database operations */
 #define WXDRC_OK 0
@@ -27,6 +28,33 @@ typedef struct WXDBDriver WXDBDriver;
 
 /* Fixed error buffering size */
 #define WXDB_FIXED_ERROR_SIZE 2048
+
+/* Internal sync/async prototypes, matched exactly to the scheduler methods */
+typedef uint32_t (*WXDB_SocketWaitFn)(WXSocket sock, uint32_t flags);
+typedef void (*WXDB_SocketReleaseFn)(WXSocket sock);
+
+/**
+ * Register handlers to support synchronous and asynchronous operations within
+ * the dbxf library.  The prototypes exactly match the extensions in the
+ * scheduler, so in standard cases the call would be:
+ *
+ *     WXDB_SetSocketHandlers(GMPS_SocketWait, GMPS_SocketRelease);
+ *
+ * @param waitFn Method to process wait requirements, NULL to revert to the
+ *               blocking instance.
+ * @param releaseFn Handler to release a socket used in the wait, NULL for none.
+ */
+void WXDB_SetSocketHandlers(WXDB_SocketWaitFn waitFn,
+                            WXDB_SocketReleaseFn releaseFn);
+
+/**
+ * For external usage, the default blocking socket handler per above prototype.
+ *
+ * @param sock The socket descriptor to await on.
+ * @param flags A mixture of WXNRC_READ_REQUIRED and WXNRC_WRITE_REQUIRED.
+ * @return The subset of conditions encountered or zero on error.
+ */
+uint32_t WXDB_DefaultSocketWait(WXSocket sock, uint32_t flags);
 
 /**
  * Obtain the last error message related to the provided object.  This can
@@ -88,6 +116,8 @@ int WXDBConnectionPool_Init(WXDBConnectionPool *pool, const char *dsn,
  * Obtain a connection instance from the pool, either reusing a previous
  * connection or allocating a new one.  Note that this method is thread-safe.
  *
+ * TODO - currently the pool is unbounded!
+ *
  * @param pool Reference to the pool to pull a connection from.
  * @return A connection instance or NULL on allocation or connection error.
  */
@@ -111,12 +141,13 @@ void WXDBConnectionPool_Return(WXDBConnection *conn);
 void WXDBConnectionPool_Destroy(WXDBConnectionPool *pool);
 
 /**
- * Begin a transaction on the associated database connection.
+ * Test whether the underlying database connection is still alive, based
+ * on the capabilities of the underlying driver.
  *
- * @param conn Reference to connection to begin a transaction on.
- * @return One of the WXDRC_* result codes, depending on outcome.
+ * @param conn Reference to the connection to be tested.
+ * @return TRUE if the connection is valid, FALSE if not.
  */
-void WXDBConnectionPool_Return(WXDBConnection *conn);
+int WXDBConnection_Ping(WXDBConnection *conn);
 
 /**
  * Begin a transaction on the associated database connection.
@@ -292,7 +323,7 @@ int64_t WXDBStatement_RowsModified(WXDBStatement *stmt);
  * Retrieve the row identifier for the record inserted in the last query
  * executed on the prepared statement.
  *
- * @param conn Reference to the statement that executed an insert.
+ * @param stmt Reference to the statement that executed an insert.
  * @return Row identifier of the last row inserted by the statement, which
  *         is very vendor dependent and complicated by multiple row inserts
  *         or stored procedure instances.  Returns zero (where possible) if
@@ -303,7 +334,7 @@ uint64_t WXDBStatement_LastRowId(WXDBStatement *stmt);
 /**
  * Release the statement instance and any allocated resources associated to it.
  *
- * @param conn Reference to the statement to release.
+ * @param stmt Reference to the statement to release.
  */
 void WXDBStatement_Close(WXDBStatement *stmt);
 

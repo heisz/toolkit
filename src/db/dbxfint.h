@@ -1,7 +1,7 @@
 /*
  * Internal definitions for the db facade library - not to be read externally.
  *
- * Copyright (C) 1997-2020 J.M. Heisz.  All Rights Reserved.
+ * Copyright (C) 1997-2026 J.M. Heisz.  All Rights Reserved.
  * See the LICENSE file accompanying the distribution your rights to use
  * this software.
  */
@@ -14,6 +14,10 @@
 /* Special form of strncpy that truncates with terminator and the malloc err */
 void _dbxfStrNCpy(char *dst, const char *src, int len);
 void _dbxfMemFail(char *dst);
+
+/* Internal accessors to the registered sync/async wait mechanisms */
+uint32_t _dbxfSocketWait(int sock, uint32_t flags);
+void _dbxfSocketRelease(int sock);
 
 /* A bunch of magic numbers for the various db data structures */
 #define WXDB_MAGIC_POOL 0x6C55BE73
